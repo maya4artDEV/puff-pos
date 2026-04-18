@@ -715,6 +715,18 @@ function saveFry() {
     var ts = new Date().toLocaleString("th-TH", {timeZone:"Asia/Bangkok"});
     S.fry_log.push({ts:ts, items:items}); save();
     showToast("✅ บันทึกรอบทอดแล้ว");
+    if (SHEET_URL !== "https://script.google.com/macros/s/AKfycbxMbd0YD2KpUjk0DMYsLdVxGEj1BeCJchv12QmKdN454kMF5BCsIpnsipoTaAWQMOoD/exec") {
+        fetch(SHEET_URL, {
+            method: "POST", mode: "no-cors",
+            headers: {"Content-Type":"application/json"},
+            body: JSON.stringify({
+                type: "fry",
+                ts: ts,
+                branch: currentBranch,
+                items: items
+            })
+        }).catch(function(){});
+    }
     renderFryPage(); renderSell();
 }
 
