@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>PUFF STICK คุณต๋อย v7</title>
+<title>PUFF STICK v8</title>
 <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Thai:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>
@@ -225,15 +225,8 @@ html,body{font-family:"Noto Sans Thai",sans-serif;background:var(--bg);color:var
       <input class="field-input" id="staffPhone" type="tel" placeholder="0xx-xxx-xxxx" oninput="updBar()"></div>
   </div>
   <div class="sec"><span>📍</span> สาขา / จุดขาย <span class="req">*</span></div>
-  <div class="loc-grid">
-    <button class="loc-btn" onclick="setLoc(this,'สาขาสระบุรี')">สาขาสระบุรี</button>
-    <button class="loc-btn" onclick="setLoc(this,'ปตท.ทับกวาง')">ปตท.ทับกวาง</button>
-    <button class="loc-btn" onclick="setLoc(this,'สาขามวกเหล็ก')">สาขามวกเหล็ก</button>
-    <button class="loc-btn" onclick="setLoc(this,'ปตท.บ้านใหญ่วังน้อย')">ปตท.บ้านใหญ่วังน้อย</button>
-    <button class="loc-btn" onclick="setLoc(this,'ปตท.บางปะอิน')">ปตท.บางปะอิน</button>
-    <button class="loc-btn" id="evtBtn" onclick="focusEvt(this)">📌 อีเวนต์อื่น</button>
-  </div>
-  <input class="loc-custom" id="evtInput" type="text" placeholder="พิมพ์ชื่อสถานที่..." oninput="onEvt()" style="display:none">
+  <div class="tip">📌 พิมพ์ชื่อสาขาหรือจุดขายของคุณ แล้วกด Enter หรือแตะที่อื่นเพื่อยืนยัน</div>
+  <input class="loc-custom" id="branchInput" type="text" placeholder="เช่น สาขาเชียงใหม่, ตลาดนัดลาดพร้าว..." oninput="onBranchInput()" style="display:block;margin-top:0">
   <div class="divider"></div>
   <div class="sec"><span>💰</span> ราคาขายปลีก <span class="req">*</span></div>
   <div class="price-band">
@@ -428,7 +421,6 @@ function $(id) { return document.getElementById(id); }
 // ── Config ──
 var SHEET_URL = "https://script.google.com/macros/s/AKfycbxMbd0YD2KpUjk0DMYsLdVxGEj1BeCJchv12QmKdN454kMF5BCsIpnsipoTaAWQMOoD/exec";
 var EMAIL_TO  = "92foodlimited@gmail.com";
-var BRANCHES  = ["สาขาสระบุรี","ปตท.ทับกวาง","สาขามวกเหล็ก","ปตท.บ้านใหญ่วังน้อย","ปตท.บางปะอิน"];
 
 var F = [
     {id:"ORI",code:"FG-ORI",e:"🥐",n:"ออริจินัล"},
@@ -485,6 +477,7 @@ function loadBranch(branch, dateStr) {
 function save() {
     if (!currentBranch) return;
     localStorage.setItem(stateKey(currentBranch), JSON.stringify(S));
+    localStorage.setItem("puff8_lastBranch", currentBranch);
 }
 function setBranch(branch) {
     currentBranch = branch;
@@ -500,9 +493,11 @@ function setBranch(branch) {
             S.stock[f.id].received_pieces = S.stock[f.id].received_packs * 10;
         }
     });
-    // Update branch indicator
+    // Update branch indicator + input field
     var bi = $("branchIndicator");
     if (bi) bi.textContent = branch;
+    var inp = $("branchInput");
+    if (inp && inp.value !== branch) inp.value = branch;
     // Re-render current tab
     renderCurrentTab();
 }
@@ -520,7 +515,7 @@ function getStockTotal(id) {
 // ── Tabs ──
 var currentTab = "sell";
 function go(tab) {
-    if (!currentBranch) { showToast("กรุณาเลือกสาขาก่อน", true); return; }
+    if (!currentBranch && tab !== "sell") { showToast("กรุณาระบุสาขาก่อน", true); return; }
     currentTab = tab;
     var tabs = ["sell","fry","stock","close","hist"];
     tabs.forEach(function(t, i) {
@@ -621,21 +616,10 @@ function updBar() {
     var btn = $("submitBtn");
     if (btn) btn.disabled = !ok;
 }
-function setLoc(btn, name) {
-    setBranch(name);
-    document.querySelectorAll(".loc-btn").forEach(function(b) { b.classList.remove("active"); });
-    btn.classList.add("active");
-    $("evtInput").style.display = "none"; $("evtInput").value = "";
-    renderSell(); updBar();
-}
-function focusEvt(btn) {
-    document.querySelectorAll(".loc-btn").forEach(function(b) { b.classList.remove("active"); });
-    btn.classList.add("active");
-    $("evtInput").style.display = "block"; $("evtInput").focus();
-}
-function onEvt() {
-    var v = $("evtInput").value.trim();
+function onBranchInput() {
+    var v = $("branchInput").value.trim();
     if (v) setBranch(v);
+    else { currentBranch = ""; S = null; }
     renderSell(); updBar();
 }
 function resetSell() {
@@ -1289,6 +1273,13 @@ function showToast(msg, err) {
 
 // ── Init ──
 window.addEventListener("DOMContentLoaded", function() {
+    // Restore last used branch from localStorage (for franchise convenience)
+    var lastBranch = localStorage.getItem("puff8_lastBranch");
+    if (lastBranch) {
+        var inp = $("branchInput");
+        if (inp) inp.value = lastBranch;
+        setBranch(lastBranch);
+    }
     renderSell(); updBar();
 });
 
