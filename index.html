@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>PUFF STICK v8</title>
+<title>PUFF STICK คุณต๋อย v7</title>
 <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Thai:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>
@@ -225,27 +225,15 @@ html,body{font-family:"Noto Sans Thai",sans-serif;background:var(--bg);color:var
       <input class="field-input" id="staffPhone" type="tel" placeholder="0xx-xxx-xxxx" oninput="updBar()"></div>
   </div>
   <div class="sec"><span>📍</span> สาขา / จุดขาย <span class="req">*</span></div>
-  <div class="loc-grid" id="branchGrid"></div>
-
-  <div style="margin-top:10px">
-    <div class="field-label">📌 สาขาแฟรนไชส์ / จุดขายอิสระ — พิมพ์รหัสของคุณเอง</div>
-    <input class="loc-custom" id="branchFreeInput" type="text"
-      placeholder="เช่น FRN-CM01 หรือ ปตท.เชียงใหม่"
-      oninput="onFreeInput()" style="display:block;margin-top:4px">
-    <div id="branchWarn" style="display:none;margin-top:6px;background:#FFFBEB;border:1.5px solid #FCD34D;border-radius:10px;padding:10px 12px;font-size:12px;color:#92400E;line-height:1.7">
-      ⚠️ <b>สำคัญมาก — อ่านก่อนใช้งาน</b><br>
-      รหัสสาขาที่พิมพ์นี้จะถูกใช้เป็น <b>กุญแจเก็บข้อมูล</b> ในเครื่องนี้<br>
-      ถ้าพิมพ์ผิด แม้แค่ตัวเดียว หรือใช้ตัวพิมพ์ใหญ่/เล็กต่างกัน<br>
-      <b style="color:var(--bad)">ข้อมูลย้อนหลังทั้งหมดจะหาย</b> และเริ่มใหม่ตั้งแต่ต้น<br>
-      <span style="font-size:11px">💡 แนะนำ: ตั้งรหัสสั้นๆ ตัวพิมพ์ใหญ่ทั้งหมด เช่น CM-PTT01 แล้ว<b>จดไว้</b></span>
-    </div>
-    <div id="branchFreeConfirm" style="display:none;margin-top:6px;background:#ECFDF5;border:1.5px solid #6EE7B7;border-radius:10px;padding:8px 12px;font-size:12px;color:#065F46">
-      ✅ ใช้รหัส: <b id="branchFreeCode"></b>
-    </div>
-    <button id="branchFreeBtn" onclick="confirmFree()" style="display:none;margin-top:8px;width:100%;border:none;border-radius:12px;padding:11px;font-family:'Noto Sans Thai',sans-serif;font-size:13px;font-weight:800;cursor:pointer;background:var(--blue);color:#fff">
-      ยืนยันใช้รหัสนี้
-    </button>
+  <div class="loc-grid">
+    <button class="loc-btn" onclick="setLoc(this,'สาขาสระบุรี')">สาขาสระบุรี</button>
+    <button class="loc-btn" onclick="setLoc(this,'ปตท.ทับกวาง')">ปตท.ทับกวาง</button>
+    <button class="loc-btn" onclick="setLoc(this,'สาขามวกเหล็ก')">สาขามวกเหล็ก</button>
+    <button class="loc-btn" onclick="setLoc(this,'ปตท.บ้านใหญ่วังน้อย')">ปตท.บ้านใหญ่วังน้อย</button>
+    <button class="loc-btn" onclick="setLoc(this,'ปตท.บางปะอิน')">ปตท.บางปะอิน</button>
+    <button class="loc-btn" id="evtBtn" onclick="focusEvt(this)">📌 อีเวนต์อื่น</button>
   </div>
+  <input class="loc-custom" id="evtInput" type="text" placeholder="พิมพ์ชื่อสถานที่..." oninput="onEvt()" style="display:none">
   <div class="divider"></div>
   <div class="sec"><span>💰</span> ราคาขายปลีก <span class="req">*</span></div>
   <div class="price-band">
@@ -438,22 +426,9 @@ function clr(node) { while (node.firstChild) node.removeChild(node.firstChild); 
 function $(id) { return document.getElementById(id); }
 
 // ── Config ──
-var SHEET_URL = "https://script.google.com/macros/s/AKfycbxMbd0YD2KpUjk0DMYsLdVxGEj1BeCJchv12QmKdN454kMF5BCsIpnsipoTaAWQMOoD/exec";
+var SHEET_URL = "YOUR_GOOGLE_APPS_SCRIPT_URL_HERE";
 var EMAIL_TO  = "92foodlimited@gmail.com";
-
-// ── Branch Codes ─────────────────────────────────────────────────────────────
-// แก้รายการนี้เพื่อเพิ่ม/ลบสาขา แฟรนไชส์จะเห็นเฉพาะรหัสสาขาของตัวเอง
-// รูปแบบ: { code: "รหัสที่ใช้ใน system", label: "ชื่อที่แสดงบนหน้าจอ" }
-// ⚠️ ห้ามเปลี่ยน code หลังจากเริ่มใช้งานแล้ว เพราะจะทำให้ข้อมูลย้อนหลังหาย
-var BRANCH_CODES = [
-    { code: "SBR-01", label: "สระบุรี (สาขาหลัก)" },
-    { code: "TBK-02", label: "ปตท.ทับกวาง" },
-    { code: "MVK-03", label: "สาขามวกเหล็ก" },
-    { code: "WNY-04", label: "ปตท.บ้านใหญ่วังน้อย" },
-    { code: "BPI-05", label: "ปตท.บางปะอิน" },
-    // เพิ่มสาขาแฟรนไชส์ได้ที่นี่ เช่น:
-    // { code: "FRN-06", label: "แฟรนไชส์เชียงใหม่" },
-];
+var BRANCHES  = ["สาขาสระบุรี","ปตท.ทับกวาง","สาขามวกเหล็ก","ปตท.บ้านใหญ่วังน้อย","ปตท.บางปะอิน"];
 
 var F = [
     {id:"ORI",code:"FG-ORI",e:"🥐",n:"ออริจินัล"},
@@ -510,7 +485,6 @@ function loadBranch(branch, dateStr) {
 function save() {
     if (!currentBranch) return;
     localStorage.setItem(stateKey(currentBranch), JSON.stringify(S));
-    localStorage.setItem("puff8_lastBranch", currentBranch);
 }
 function setBranch(branch) {
     currentBranch = branch;
@@ -528,10 +502,7 @@ function setBranch(branch) {
     });
     // Update branch indicator
     var bi = $("branchIndicator");
-    if (bi) {
-        var found = BRANCH_CODES.find(function(b){ return b.code === branch; });
-        bi.textContent = found ? found.label + " (" + branch + ")" : branch;
-    }
+    if (bi) bi.textContent = branch;
     // Re-render current tab
     renderCurrentTab();
 }
@@ -549,7 +520,7 @@ function getStockTotal(id) {
 // ── Tabs ──
 var currentTab = "sell";
 function go(tab) {
-    if (!currentBranch && tab !== "sell") { showToast("กรุณาระบุสาขาก่อน", true); return; }
+    if (!currentBranch) { showToast("กรุณาเลือกสาขาก่อน", true); return; }
     currentTab = tab;
     var tabs = ["sell","fry","stock","close","hist"];
     tabs.forEach(function(t, i) {
@@ -650,56 +621,21 @@ function updBar() {
     var btn = $("submitBtn");
     if (btn) btn.disabled = !ok;
 }
-function renderBranchGrid() {
-    var grid = $("branchGrid"); if (!grid) return;
-    grid.innerHTML = "";
-    BRANCH_CODES.forEach(function(b) {
-        var btn = document.createElement("button");
-        btn.className = "loc-btn" + (currentBranch === b.code ? " active" : "");
-        btn.innerHTML = "<span style='font-size:10px;font-weight:800;color:inherit;opacity:.7'>" + b.code + "</span><br>" + b.label;
-        btn.onclick = function() { selectBranch(b.code, b.label); };
-        grid.appendChild(btn);
-    });
-}
-function selectBranch(code, label) {
-    setBranch(code);
-    // Clear free input
-    var fi = $("branchFreeInput"); if (fi) fi.value = "";
-    var fw = $("branchWarn"); if (fw) fw.style.display = "none";
-    var fb = $("branchFreeBtn"); if (fb) fb.style.display = "none";
-    var fc = $("branchFreeConfirm"); if (fc) fc.style.display = "none";
-    renderBranchGrid();
+function setLoc(btn, name) {
+    setBranch(name);
+    document.querySelectorAll(".loc-btn").forEach(function(b) { b.classList.remove("active"); });
+    btn.classList.add("active");
+    $("evtInput").style.display = "none"; $("evtInput").value = "";
     renderSell(); updBar();
 }
-function onFreeInput() {
-    var v = $("branchFreeInput").value.trim();
-    var warn = $("branchWarn");
-    var btn  = $("branchFreeBtn");
-    var conf = $("branchFreeConfirm");
-    if (v.length > 0) {
-        if (warn) warn.style.display = "block";
-        if (btn)  btn.style.display  = "block";
-        if (conf) conf.style.display = "none";
-        // Deselect preset buttons
-        document.querySelectorAll("#branchGrid .loc-btn").forEach(function(b){ b.classList.remove("active"); });
-        currentBranch = ""; S = null;
-    } else {
-        if (warn) warn.style.display = "none";
-        if (btn)  btn.style.display  = "none";
-    }
-    updBar();
+function focusEvt(btn) {
+    document.querySelectorAll(".loc-btn").forEach(function(b) { b.classList.remove("active"); });
+    btn.classList.add("active");
+    $("evtInput").style.display = "block"; $("evtInput").focus();
 }
-function confirmFree() {
-    var v = $("branchFreeInput").value.trim();
-    if (!v) return;
-    setBranch(v);
-    var conf = $("branchFreeConfirm");
-    if (conf) { conf.style.display = "block"; }
-    var cd = $("branchFreeCode");
-    if (cd) cd.textContent = v;
-    var warn = $("branchWarn"); if (warn) warn.style.display = "none";
-    var btn  = $("branchFreeBtn"); if (btn) btn.style.display = "none";
-    renderBranchGrid();
+function onEvt() {
+    var v = $("evtInput").value.trim();
+    if (v) setBranch(v);
     renderSell(); updBar();
 }
 function resetSell() {
@@ -779,18 +715,6 @@ function saveFry() {
     var ts = new Date().toLocaleString("th-TH", {timeZone:"Asia/Bangkok"});
     S.fry_log.push({ts:ts, items:items}); save();
     showToast("✅ บันทึกรอบทอดแล้ว");
-    if (SHEET_URL !== "https://script.google.com/macros/s/AKfycbxMbd0YD2KpUjk0DMYsLdVxGEj1BeCJchv12QmKdN454kMF5BCsIpnsipoTaAWQMOoD/exec") {
-        fetch(SHEET_URL, {
-            method: "POST", mode: "no-cors",
-            headers: {"Content-Type":"application/json"},
-            body: JSON.stringify({
-                type: "fry",
-                ts: ts,
-                branch: currentBranch,
-                items: items
-            })
-        }).catch(function(){});
-    }
     renderFryPage(); renderSell();
 }
 
@@ -914,6 +838,16 @@ function addWithdraw() {
 function removeWithdraw(i) {
     S.withdrawals.splice(i, 1); save(); renderWithdrawals(); calcClose();
 }
+function updWithdrawSum() {
+    if (!S) return;
+    var sum = 0;
+    (S.withdrawals || []).forEach(function(w) { sum += w.amount || 0; });
+    var sd = document.getElementById("withdrawSumDisplay");
+    if (sd) sd.textContent = sum > 0 ? "฿" + sum.toLocaleString() : "";
+    // Update sum bar inside list if rendered
+    var sb = document.querySelector(".withdraw-sum-val");
+    if (sb) sb.textContent = "฿" + sum.toLocaleString();
+}
 function renderWithdrawals() {
     var box = $("withdrawList"); if (!box) return; clr(box);
     if (!S || !S.withdrawals || !S.withdrawals.length) {
@@ -939,7 +873,7 @@ function renderWithdrawals() {
         (function(idx) {
             amtInp.oninput = function() {
                 S.withdrawals[idx].amount = parseInt(this.value) || 0;
-                save(); renderWithdrawals(); calcClose();
+                save(); updWithdrawSum(); calcClose();
             };
         })(i);
         var rsInp = el("input", {cls:"text-input", type:"text", placeholder:"เช่น ซื้อน้ำมันทอด, ค่าน้ำมันรถ..."});
@@ -1353,27 +1287,6 @@ function showToast(msg, err) {
 
 // ── Init ──
 window.addEventListener("DOMContentLoaded", function() {
-    // Render branch selection grid
-    renderBranchGrid();
-    // Restore last used branch from localStorage
-    var lastBranch = localStorage.getItem("puff8_lastBranch");
-    if (lastBranch) {
-        var found = BRANCH_CODES.find(function(b) { return b.code === lastBranch; });
-        if (found) {
-            // Preset branch
-            setBranch(lastBranch);
-            renderBranchGrid();
-        } else {
-            // Free-text branch
-            setBranch(lastBranch);
-            var fi = $("branchFreeInput");
-            if (fi) fi.value = lastBranch;
-            var conf = $("branchFreeConfirm");
-            if (conf) conf.style.display = "block";
-            var cd = $("branchFreeCode");
-            if (cd) cd.textContent = lastBranch;
-        }
-    }
     renderSell(); updBar();
 });
 
