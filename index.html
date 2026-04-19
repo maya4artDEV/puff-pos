@@ -126,10 +126,10 @@ html,body{font-family:"Noto Sans Thai",sans-serif;background:var(--bg);color:var
 .exp-btn:active{background:var(--blue);color:#fff;border-color:var(--blue)}
 .staff-banner{background:linear-gradient(135deg,#FFF5F6,#FFE4E8);border:1.5px solid #FECDD3;border-radius:14px;padding:12px 14px;margin-bottom:12px}
 .staff-banner h3{font-size:13px;font-weight:800;color:var(--red);margin-bottom:8px}
-.field-row{display:flex;gap:8px;margin-bottom:8px}
-.field-wrap{flex:1;display:flex;flex-direction:column;gap:3px}
+.field-row{display:flex;gap:8px;margin-bottom:8px;min-width:0}
+.field-wrap{flex:1;min-width:0;display:flex;flex-direction:column;gap:3px}
 .field-wrap label{font-size:10px;font-weight:700;color:var(--muted);letter-spacing:.5px;text-transform:uppercase}
-.field-input{border:1.5px solid var(--border2);border-radius:10px;padding:9px 10px;font-family:"Noto Sans Thai",sans-serif;font-size:13px;outline:none;color:var(--text);background:#fff}
+.field-input{border:1.5px solid var(--border2);border-radius:10px;padding:9px 10px;font-family:"Noto Sans Thai",sans-serif;font-size:13px;outline:none;color:var(--text);background:#fff;width:100%;box-sizing:border-box}
 .field-input:focus{border-color:var(--red)}
 .field-input::placeholder{color:var(--muted)}
 .hist-card{background:var(--card);border:1.5px solid var(--border);border-radius:14px;padding:12px 14px;margin-bottom:10px;box-shadow:0 2px 6px rgba(0,0,0,.05)}
@@ -438,38 +438,21 @@ function clr(node) { while (node.firstChild) node.removeChild(node.firstChild); 
 function $(id) { return document.getElementById(id); }
 
 // ── Config ──
+var SHEET_URL = "https://script.google.com/macros/s/AKfycbxMbd0YD2KpUjk0DMYsLdVxGEj1BeCJchv12QmKdN454kMF5BCsIpnsipoTaAWQMOoD/exec";
 var EMAIL_TO  = "92foodlimited@gmail.com";
 
-// ══════════════════════════════════════════════════════════════════
-//  ROUTING CONFIG — แก้ที่นี่ที่เดียว
-// ══════════════════════════════════════════════════════════════════
-//
-//  OWNER_URL     → สาขาของคุณ (BRANCH_CODES) + งาน Event (ขึ้นต้นด้วย E)
-//                  → Spreadsheet: 1xvDAq2scrnd9H1XcQCeZoATcT_5EMftjWt94XPzz__w
-//
-//  FRANCHISE_URL → รหัสอิสระที่แฟรนไชส์พิมพ์เอง
-//                  → Spreadsheet: 1f6v9eLTGVl8bMxFMWNetppcIpWsPKAPXr6UekzmO-ms
-//
-//  Telegram แจ้งเตือนทุกสาขา → Chat ID: 5566010745 (ตั้งใน Apps Script)
-//
-var OWNER_URL     = "https://script.google.com/macros/s/AKfycbxMbd0YD2KpUjk0DMYsLdVxGEj1BeCJchv12QmKdN454kMF5BCsIpnsipoTaAWQMOoD/exec";
-var FRANCHISE_URL = "https://script.google.com/macros/s/AKfycbzeHh3ouj782znH-gQemvoH733fQjrQZPWFiesTZU3Hzum4coiEWb2ZAwoC1kPPFM-NDQ/exec";
-
-// routing: preset branch หรือขึ้นต้นด้วย E → OWNER, อื่นๆ → FRANCHISE
-function getSheetURL() {
-    var isPreset = BRANCH_CODES.some(function(b) { return b.code === currentBranch; });
-    var isEvent  = /^E/i.test(currentBranch) && currentBranch.charAt(0) === "E"; // E พิมพ์ใหญ่เท่านั้น
-    return (isPreset || isEvent) ? OWNER_URL : FRANCHISE_URL;
-}
-
-// ── Branch Codes (สาขาของคุณ) ─────────────────────────────────────────────
-// ⚠️ ห้ามเปลี่ยน code หลังจากเริ่มใช้งานแล้ว — ข้อมูลย้อนหลังจะหาย
+// ── Branch Codes ─────────────────────────────────────────────────────────────
+// แก้รายการนี้เพื่อเพิ่ม/ลบสาขา แฟรนไชส์จะเห็นเฉพาะรหัสสาขาของตัวเอง
+// รูปแบบ: { code: "รหัสที่ใช้ใน system", label: "ชื่อที่แสดงบนหน้าจอ" }
+// ⚠️ ห้ามเปลี่ยน code หลังจากเริ่มใช้งานแล้ว เพราะจะทำให้ข้อมูลย้อนหลังหาย
 var BRANCH_CODES = [
     { code: "SBR-01", label: "สระบุรี (สาขาหลัก)" },
     { code: "TBK-02", label: "ปตท.ทับกวาง" },
     { code: "MVK-03", label: "สาขามวกเหล็ก" },
     { code: "WNY-04", label: "ปตท.บ้านใหญ่วังน้อย" },
     { code: "BPI-05", label: "ปตท.บางปะอิน" },
+    // เพิ่มสาขาแฟรนไชส์ได้ที่นี่ เช่น:
+    // { code: "FRN-06", label: "แฟรนไชส์เชียงใหม่" },
 ];
 
 var F = [
@@ -740,9 +723,11 @@ function submitSell() {
     save();
     btn.disabled = true; btn.textContent = "⏳ กำลังบันทึก...";
     showToast("✅ บันทึก " + tp + " ชิ้น = ฿" + ta.toLocaleString());
-    fetch(getSheetURL(), {method:"POST", mode:"no-cors", headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({type:"sale",ts:ts,branch:currentBranch,staff:staff,price:price,items:items,totalPieces:tp,totalAmount:ta})
-    }).catch(function(){});
+    if (SHEET_URL !== "YOUR_GOOGLE_APPS_SCRIPT_URL_HERE") {
+        fetch(SHEET_URL, {method:"POST", mode:"no-cors", headers:{"Content-Type":"application/json"},
+            body:JSON.stringify({type:"sale",ts:ts,branch:currentBranch,staff:staff,price:price,items:items,totalPieces:tp,totalAmount:ta})
+        }).catch(function(){});
+    }
     F.forEach(function(f) { sq[f.id] = 0; });
     renderSell(); updBar(); btn.textContent = "✓ บันทึกออเดอร์นี้";
 }
@@ -794,16 +779,18 @@ function saveFry() {
     var ts = new Date().toLocaleString("th-TH", {timeZone:"Asia/Bangkok"});
     S.fry_log.push({ts:ts, items:items}); save();
     showToast("✅ บันทึกรอบทอดแล้ว");
-    fetch(getSheetURL(), {
-        method: "POST", mode: "no-cors",
-        headers: {"Content-Type":"application/json"},
-        body: JSON.stringify({
-            type: "fry",
-            ts: ts,
-            branch: currentBranch,
-            items: items
-        })
-    }).catch(function(){});
+    if (SHEET_URL !== "https://script.google.com/macros/s/AKfycbxMbd0YD2KpUjk0DMYsLdVxGEj1BeCJchv12QmKdN454kMF5BCsIpnsipoTaAWQMOoD/exec") {
+        fetch(SHEET_URL, {
+            method: "POST", mode: "no-cors",
+            headers: {"Content-Type":"application/json"},
+            body: JSON.stringify({
+                type: "fry",
+                ts: ts,
+                branch: currentBranch,
+                items: items
+            })
+        }).catch(function(){});
+    }
     renderFryPage(); renderSell();
 }
 
