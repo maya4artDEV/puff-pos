@@ -258,6 +258,15 @@ html,body{font-family:"Noto Sans Thai",sans-serif;background:var(--bg);color:var
   <div class="sec"><span>🥟</span> บันทึกออเดอร์ (ชิ้น) <span class="req">*</span></div>
   <div class="tip">💡 กรอก <b>ข้อมูลผู้บันทึก · สาขา · ราคา</b> และเลือกไส้ก่อน ถึงจะกดบันทึกได้<br>ช่องที่มี <span style="color:var(--red);font-weight:800">*</span> คือบังคับกรอก</div>
   <div id="sellList"></div>
+  <div class="divider"></div>
+  <div class="sec"><span>🎁</span> ของฝาก</div>
+  <div class="tip" style="background:#F0FDF4;border-color:#6EE7B7;color:#065F46">
+    สินค้าของฝากสาขา — กด <b>+เพิ่มรายการ</b> เพื่อตั้งชื่อสินค้าและราคา
+  </div>
+  <div id="giftSellList"></div>
+  <button class="abtn-outline" id="addGiftBtn" onclick="showAddGiftModal()" style="margin-bottom:8px">+ เพิ่มรายการของฝาก</button>
+  <div id="giftSellResult" style="display:none;margin-bottom:6px"></div>
+  <button class="abtn grn" id="submitGiftBtn" onclick="submitGiftSale()" style="display:none;margin-bottom:4px">🎁 บันทึกยอดของฝาก</button>
 </div>
 
 <!-- FRY -->
@@ -298,6 +307,16 @@ html,body{font-family:"Noto Sans Thai",sans-serif;background:var(--bg);color:var
   <div class="divider"></div>
   <div class="sec"><span>📊</span> สรุปสต๊อกวันนี้</div>
   <div id="stockSummary"></div>
+  <div class="divider"></div>
+  <div class="sec"><span>🎁</span> สต๊อกของฝาก</div>
+  <div class="tip" style="background:#F0FDF4;border-color:#6EE7B7;color:#065F46">
+    กรอกจำนวนที่ <b>รับเข้า</b> วันนี้ — ระบบจะรวมกับยอดยกมาจากเมื่อวาน
+  </div>
+  <div id="giftStockList"></div>
+  <button class="abtn" style="background:var(--blue);width:100%;margin-top:8px" onclick="saveGiftReceive()">✓ บันทึกรับสต๊อกของฝาก</button>
+  <div class="divider"></div>
+  <div class="sec"><span>📦</span> สรุปสต๊อกของฝาก</div>
+  <div id="giftStockSummary"></div>
 </div>
 
 <!-- CLOSE -->
@@ -313,6 +332,8 @@ html,body{font-family:"Noto Sans Thai",sans-serif;background:var(--bg);color:var
   <div class="divider"></div>
   <div class="sec"><span>🛒</span> ยอดจากออเดอร์ที่บันทึก</div>
   <div class="card" id="salesCard"></div>
+  <div class="sec"><span>🎁</span> ยอดขายของฝากวันนี้</div>
+  <div class="card" id="giftSalesCard"><div style="color:var(--muted);font-size:13px;text-align:center;padding:6px">ยังไม่มียอดของฝาก</div></div>
   <div class="sec"><span>🍽️</span> นับขนมทอดคงเหลือหน้าตู้</div>
   <div class="tip green">✅ ทอดออกมา − เหลือ − เสีย − แถม = ขายจริง × ราคา = ยอดเงิน</div>
   <div id="physList"></div>
@@ -410,6 +431,30 @@ html,body{font-family:"Noto Sans Thai",sans-serif;background:var(--bg);color:var
 </div>
 
 <div class="toast" id="toast"></div>
+
+<!-- GIFT ADD/EDIT MODAL -->
+<div class="modal-overlay" id="giftModal" onclick="closeGiftModalOutside(event)">
+  <div class="modal-sheet" style="padding-bottom:50px">
+    <div class="modal-handle"></div>
+    <div class="modal-title" id="giftModalTitle">+ เพิ่มรายการของฝาก</div>
+    <div class="modal-sub">ตั้งชื่อสินค้าและราคาขาย</div>
+    <div style="margin-bottom:12px">
+      <div class="field-label">ชื่อสินค้า <span class="req">*</span></div>
+      <input class="text-input" id="giftModalName" type="text" placeholder="เช่น กล่องพัฟสติ๊กของขวัญ, แก้วน้ำโลโก้...">
+    </div>
+    <div style="margin-bottom:16px">
+      <div class="field-label">ราคาขาย (บาท/ชิ้น) <span class="req">*</span></div>
+      <input class="cash-input" id="giftModalPrice" type="number" placeholder="0" style="width:100%">
+    </div>
+    <div id="giftModalEditBtns" style="display:none;margin-bottom:10px">
+      <button class="abtn" style="width:100%;background:#FF3B30;margin-bottom:8px" onclick="removeGiftItem()">🗑️ ลบรายการนี้</button>
+    </div>
+    <div style="display:flex;gap:10px">
+      <button class="abtn red" style="flex:1" onclick="saveGiftModal()">✓ บันทึก</button>
+      <button class="abtn" style="flex:1;background:var(--muted)" onclick="closeGiftModal()">ยกเลิก</button>
+    </div>
+  </div>
+</div>
 <script>
 // ═══════════════════════════════════════════════════════
 //  PUFF STICK v7  —  clean & lean rewrite
@@ -490,7 +535,8 @@ var F = [
 // ── State ──
 var currentBranch = "";
 var S = null;
-var sq = {};  // sell quantities
+var sq = {};  // puff sell quantities
+var gq = {};  // gift sell quantities
 
 function safeBranch(b) {
     return (b || "unknown").replace(/\s+/g, "_").replace(/[^\w\u0E00-\u0E7F]/g, "");
@@ -509,21 +555,65 @@ function newState(branch) {
         branch: branch,
         date: todayISO(),
         stock: st,
-        stock_log: [],   // [{ts,items:[{id,pieces,note}],is_correction,reason}]
+        stock_log: [],
         sales: [],
         fry_log: [],
         withdrawals: [],
-        damaged: {},     // {[id]: pieces}
-        free_items: {},  // {[id]: pieces}
+        damaged: {},
+        free_items: {},
         pricePerPiece: 10,
-        lastStaff: {name:"", nick:"", phone:""}
+        lastStaff: {name:"", nick:"", phone:""},
+        gift_catalog: [],  // [{id,name,price}] — กำหนดเองต่อสาขา
+        gift_stock:   {},  // {[gid]: {received:N, sold:N}}
+        gift_sales:   []   // [{ts,staff,items:[{id,name,qty,price,total}],grandTotal}]
     };
+}
+// ── หา state วันก่อนหน้าล่าสุด (เพื่อ carry-over) ──
+function getPrevDayState(branch) {
+    var prefix = "puff7_" + safeBranch(branch) + "_";
+    var today  = todayISO();
+    var keys   = [];
+    for (var i = 0; i < localStorage.length; i++) {
+        var k = localStorage.key(i);
+        if (k && k.startsWith(prefix) && k !== prefix + today) keys.push(k);
+    }
+    if (!keys.length) return null;
+    keys.sort().reverse();
+    try { return JSON.parse(localStorage.getItem(keys[0])); } catch(e) { return null; }
+}
+// ── สร้าง state วันใหม่พร้อม carry-over stock จากวันก่อน ──
+function newStateWithCarryOver(branch) {
+    var state = newState(branch);
+    var prev  = getPrevDayState(branch);
+    if (!prev) return state;
+    // carry-over แช่แข็งพัฟสติ๊กที่ยังเหลืออยู่ในตู้
+    F.forEach(function(f) {
+        var ps = prev.stock && prev.stock[f.id];
+        if (ps) {
+            var recv = ps.received_pieces || (ps.received_packs||0)*10;
+            var frozen = Math.max(0, recv - (ps.fry_out||0));
+            state.stock[f.id].received_pieces = frozen;
+        }
+    });
+    // carry-over ราคาขาย
+    if (prev.pricePerPiece) state.pricePerPiece = prev.pricePerPiece;
+    // carry-over สินค้าของฝาก (catalog + stock เหลือ)
+    if (prev.gift_catalog && prev.gift_catalog.length) {
+        state.gift_catalog = JSON.parse(JSON.stringify(prev.gift_catalog));
+        prev.gift_catalog.forEach(function(g) {
+            var ps = prev.gift_stock && prev.gift_stock[g.id];
+            var remaining = ps ? Math.max(0, (ps.received||0) - (ps.sold||0)) : 0;
+            state.gift_stock[g.id] = {received: remaining, sold: 0};
+        });
+    }
+    return state;
 }
 function loadBranch(branch, dateStr) {
     var key = stateKey(branch, dateStr);
     var saved = localStorage.getItem(key);
     if (saved) { return JSON.parse(saved); }
-    return newState(branch);
+    if (dateStr) return newState(branch);          // ดูย้อนหลัง → ไม่ carry-over
+    return newStateWithCarryOver(branch);           // เริ่มวันใหม่ → carry-over stock
 }
 function save() {
     if (!currentBranch) return;
@@ -534,10 +624,18 @@ function setBranch(branch) {
     currentBranch = branch;
     S = loadBranch(branch);
     F.forEach(function(f) { sq[f.id] = 0; });
-    // Sync missing fields for old saves
+    gq = {};
+    // Sync missing fields
     if (!S.damaged) S.damaged = {};
     if (!S.free_items) S.free_items = {};
     if (!S.stock_log) S.stock_log = [];
+    if (!S.gift_catalog) S.gift_catalog = [];
+    if (!S.gift_stock) S.gift_stock = {};
+    if (!S.gift_sales) S.gift_sales = [];
+    S.gift_catalog.forEach(function(g) {
+        if (!S.gift_stock[g.id]) S.gift_stock[g.id] = {received:0, sold:0};
+        if (!gq[g.id]) gq[g.id] = 0;
+    });
     F.forEach(function(f) {
         if (!S.stock[f.id]) S.stock[f.id] = {received_pieces:0, fry_out:0, sold:0};
         if (S.stock[f.id].received_packs !== undefined && !S.stock[f.id].received_pieces) {
@@ -578,6 +676,7 @@ function go(tab) {
     });
     $("sellBar").style.display  = tab === "sell"  ? "block" : "none";
     $("fryBar").style.display   = tab === "fry"   ? "block" : "none";
+    if (tab === "sell")  { renderSell(); renderGiftSell(); }
     if (tab === "fry")   { renderFryPage(); }
     if (tab === "stock") { renderStockPage(); }
     if (tab === "close") { renderClose(); }
@@ -823,6 +922,7 @@ function renderStockPage() {
     });
     renderStockLog();
     renderStockSummary();
+    renderGiftStock();
 }
 function renderStockLog() {
     var box = $("stockLog"); if (!box || !S) return; clr(box);
@@ -991,6 +1091,7 @@ function renderWithdrawals() {
 function renderClose() {
     if (!S) return;
     var price = S.pricePerPiece || 10;
+    renderGiftSalesCard();
     // Sales summary
     var sc = $("salesCard"); if (!sc) return; clr(sc);
     if (!S.sales.length) {
@@ -1309,6 +1410,32 @@ function doExport(type, data, dateStr) {
         ws4["!cols"]=[{wch:22},{wch:10},{wch:26},{wch:16}];
         XLSX.utils.book_append_sheet(wb, ws4, "ประวัติทอด");
     }
+    // ── ของฝาก ──
+    if ((type === "sales" || type === "all") && data.gift_sales && data.gift_sales.length) {
+        var grows = [["วันเวลา","สาขา","ชื่อสินค้า","จำนวน(ชิ้น)","ราคา/ชิ้น","ยอดเงิน(บาท)","ผู้บันทึก","เบอร์โทร"]];
+        var gtotal=0;
+        data.gift_sales.forEach(function(sale) {
+            sale.items.forEach(function(it,i) {
+                grows.push([sale.ts, data.branch, it.name, it.qty, it.price, it.total,
+                    i===0&&sale.staff?sale.staff.name:"", i===0&&sale.staff?sale.staff.phone:""]);
+            });
+            grows.push(["","","รวม order นี้","","","",sale.grandTotal,""]);
+            gtotal += sale.grandTotal;
+        });
+        grows.push([]); grows.push(["","","รวมทั้งวัน","","","",gtotal,""]);
+        // สต๊อกของฝาก
+        if (data.gift_catalog && data.gift_catalog.length) {
+            grows.push([]); grows.push(["── สต๊อกของฝาก ──"]);
+            grows.push(["ชื่อสินค้า","ราคา/ชิ้น","รับเข้า(ชิ้น)","ขายแล้ว","คงเหลือ"]);
+            data.gift_catalog.forEach(function(g) {
+                var st=data.gift_stock&&data.gift_stock[g.id]||{received:0,sold:0};
+                grows.push([g.name, g.price, st.received, st.sold, Math.max(0,st.received-st.sold)]);
+            });
+        }
+        var wsG = XLSX.utils.aoa_to_sheet(hRows.concat(grows));
+        wsG["!cols"]=[{wch:22},{wch:20},{wch:26},{wch:12},{wch:10},{wch:14},{wch:18},{wch:14}];
+        XLSX.utils.book_append_sheet(wb, wsG, "ของฝาก");
+    }
     var safeDate = (dateStr || todayISO()).replace(/\//g, "-");
     var safeLoc = (info.locName).replace(/[^a-zA-Z0-9ก-๙]/g,"_");
     var fname = "PuffStick_" + safeLoc + "_" + safeDate + "_" + type + ".xlsx";
@@ -1379,6 +1506,219 @@ function showToast(msg, err) {
     t.classList.add("show"); setTimeout(function(){ t.classList.remove("show"); }, 3200);
 }
 
+
+// ════════════════════════════════════════════════════════════════
+//  GIFT ITEMS — ของฝากสาขา
+// ════════════════════════════════════════════════════════════════
+
+function giftId() { return "g" + Date.now(); }
+
+// ── Render gift items in sell tab ──
+function renderGiftSell() {
+    var list = $("giftSellList"); if (!list || !S) return; clr(list);
+    var btn  = $("submitGiftBtn");
+    if (!S.gift_catalog.length) {
+        list.appendChild(el("div", {css:"color:var(--muted);font-size:12px;padding:6px 0",
+            txt:"ยังไม่มีรายการ — กด + เพิ่มรายการของฝาก"}));
+        if (btn) btn.style.display = "none";
+        return;
+    }
+    S.gift_catalog.forEach(function(g) {
+        var st  = S.gift_stock[g.id] || {received:0, sold:0};
+        var avail = Math.max(0, st.received - st.sold);
+        var qty = gq[g.id] || 0;
+        var row = el("div", {cls:"frow" + (qty>0?" has":"") + (avail<=0?" empty":""), id:"gsr-"+g.id});
+        var btnM = el("button", {cls:"qbtn minus", txt:"−"});
+        var inp  = el("input",  {cls:"qinput", type:"number", min:"0", value:String(qty), id:"gqi-"+g.id});
+        var btnP = el("button", {cls:"qbtn plus", txt:"+"});
+        (function(gid) {
+            btnM.onclick = function() { chgGift(gid,-1); };
+            btnP.onclick = function() { chgGift(gid, 1); };
+            inp.oninput  = function() { setGiftQty(gid, this.value); };
+        })(g.id);
+        // Edit button
+        var editBtn = el("button", {css:"background:none;border:none;font-size:14px;cursor:pointer;color:var(--muted);padding:4px;margin-left:4px", txt:"✏️"});
+        (function(gid){ editBtn.onclick = function(){ showEditGiftModal(gid); }; })(g.id);
+        var info = el("div", {cls:"finfo"});
+        info.appendChild(el("div", {cls:"fname", txt:"🎁 " + g.name}));
+        info.appendChild(el("div", {cls:"fstock" + (avail<=0?" bad":""), txt:"฿"+g.price+"/ชิ้น · คงเหลือ "+avail+" ชิ้น"}));
+        var ctrl = el("div", {cls:"qctrl"});
+        ctrl.appendChild(btnM); ctrl.appendChild(inp); ctrl.appendChild(btnP); ctrl.appendChild(editBtn);
+        row.appendChild(info); row.appendChild(ctrl);
+        list.appendChild(row);
+    });
+    updGiftBar();
+}
+function chgGift(gid, delta) {
+    var st = S.gift_stock[gid] || {received:0, sold:0};
+    var avail = Math.max(0, st.received - st.sold);
+    var nv = Math.max(0, (gq[gid]||0) + delta);
+    if (delta>0 && nv>avail && avail>0) { showToast("⚠️ ของฝากเหลือแค่ "+avail+" ชิ้น", true); return; }
+    gq[gid] = nv;
+    var inp = $("gqi-"+gid); if (inp) inp.value = nv;
+    var row = $("gsr-"+gid); if (row) row.className = "frow" + (nv>0?" has":"");
+    updGiftBar();
+}
+function setGiftQty(gid, val) { gq[gid]=Math.max(0,parseInt(val)||0); updGiftBar(); }
+function updGiftBar() {
+    var total=0, hasAny=false;
+    S.gift_catalog.forEach(function(g){ var q=gq[g.id]||0; total += q*g.price; if(q>0) hasAny=true; });
+    var res = $("giftSellResult"); var btn = $("submitGiftBtn");
+    if (hasAny) {
+        if (res) { res.style.display="block"; res.innerHTML="<div class='card' style='border:1.5px solid var(--ok);background:#ECFDF5;padding:10px 14px;margin:0'><b>รวมของฝาก: ฿"+total.toLocaleString()+"</b></div>"; }
+        if (btn) btn.style.display="block";
+    } else {
+        if (res) res.style.display="none";
+        if (btn) btn.style.display="none";
+    }
+}
+
+// ── Submit gift sale ──
+function submitGiftSale() {
+    if (!S || !currentBranch) return;
+    var staff = getStaff();
+    if (!staff.name || !staff.nick || !staff.phone) { showToast("กรอกข้อมูลผู้บันทึกก่อน", true); return; }
+    var items = [];
+    S.gift_catalog.forEach(function(g) {
+        var qty = gq[g.id]||0;
+        if (qty>0) items.push({id:g.id, name:g.name, qty:qty, price:g.price, total:qty*g.price});
+    });
+    if (!items.length) return;
+    var grandTotal = items.reduce(function(a,it){return a+it.total;}, 0);
+    var ts = new Date().toLocaleString("th-TH",{timeZone:"Asia/Bangkok"});
+    // Update stock
+    items.forEach(function(it){ if(S.gift_stock[it.id]) S.gift_stock[it.id].sold += it.qty; });
+    S.gift_sales.push({ts:ts, staff:staff, items:items, grandTotal:grandTotal});
+    save();
+    showToast("✅ บันทึกของฝาก ฿"+grandTotal.toLocaleString());
+    // Send to Sheets
+    fetch(getSheetURL(), {method:"POST", mode:"no-cors", headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({type:"gift_sale", ts:ts, branch:currentBranch, staff:staff, items:items, grandTotal:grandTotal})
+    }).catch(function(){});
+    S.gift_catalog.forEach(function(g){ gq[g.id]=0; });
+    renderGiftSell();
+}
+
+// ── Gift modal ──
+var _editGiftId = null;
+function showAddGiftModal() {
+    _editGiftId = null;
+    var t=$("giftModalTitle"); if(t) t.textContent="+ เพิ่มรายการของฝาก";
+    var n=$("giftModalName"); if(n) n.value="";
+    var p=$("giftModalPrice"); if(p) p.value="";
+    var eb=$("giftModalEditBtns"); if(eb) eb.style.display="none";
+    $("giftModal").classList.add("open");
+}
+function showEditGiftModal(gid) {
+    var g = S.gift_catalog.find(function(x){return x.id===gid;}); if(!g) return;
+    _editGiftId = gid;
+    var t=$("giftModalTitle"); if(t) t.textContent="✏️ แก้ไขรายการของฝาก";
+    var n=$("giftModalName"); if(n) n.value=g.name;
+    var p=$("giftModalPrice"); if(p) p.value=g.price;
+    var eb=$("giftModalEditBtns"); if(eb) eb.style.display="block";
+    $("giftModal").classList.add("open");
+}
+function closeGiftModal() { $("giftModal").classList.remove("open"); }
+function closeGiftModalOutside(e) { if(e.target===$("giftModal")) closeGiftModal(); }
+function saveGiftModal() {
+    var name = ($("giftModalName").value||"").trim();
+    var price = parseInt($("giftModalPrice").value)||0;
+    if (!name) { showToast("ใส่ชื่อสินค้าด้วย", true); return; }
+    if (!price) { showToast("ใส่ราคาด้วย", true); return; }
+    if (_editGiftId) {
+        var g = S.gift_catalog.find(function(x){return x.id===_editGiftId;});
+        if (g) { g.name=name; g.price=price; }
+    } else {
+        var gid = giftId();
+        S.gift_catalog.push({id:gid, name:name, price:price});
+        S.gift_stock[gid] = {received:0, sold:0};
+        gq[gid] = 0;
+    }
+    save(); closeGiftModal(); renderGiftSell(); renderGiftStock();
+    showToast("✅ บันทึกรายการของฝากแล้ว");
+}
+function removeGiftItem() {
+    if (!_editGiftId) return;
+    if (!confirm("ลบรายการนี้ใช่ไหม?")) return;
+    S.gift_catalog = S.gift_catalog.filter(function(g){return g.id!==_editGiftId;});
+    delete S.gift_stock[_editGiftId]; delete gq[_editGiftId];
+    save(); closeGiftModal(); renderGiftSell(); renderGiftStock();
+    showToast("ลบรายการแล้ว");
+}
+
+// ── Gift stock (in stock tab) ──
+function renderGiftStock() {
+    var list = $("giftStockList"); if(!list||!S) return; clr(list);
+    if (!S.gift_catalog.length) {
+        list.appendChild(el("div",{css:"color:var(--muted);font-size:12px;padding:6px 0",txt:"ยังไม่มีรายการของฝาก — เพิ่มได้จากแท็บ ขาย"}));
+        return;
+    }
+    S.gift_catalog.forEach(function(g) {
+        var st = S.gift_stock[g.id]||{received:0,sold:0};
+        var rem = Math.max(0,st.received-st.sold);
+        var row = el("div",{cls:"irow"});
+        var inp = el("input",{cls:"ninput bf",id:"gr-"+g.id,type:"number",min:"0",value:"0",placeholder:"0"});
+        row.appendChild(el("span",{css:"font-size:18px;margin-right:10px",txt:"🎁"}));
+        row.appendChild(el("div",{css:"flex:1"},[
+            el("div",{cls:"iname",txt:g.name}),
+            el("div",{cls:"isub",txt:"฿"+g.price+"/ชิ้น · คงเหลือ "+rem+" ชิ้น"})
+        ]));
+        row.appendChild(el("div",{cls:"num-wrap"},[inp,el("span",{cls:"ulbl",txt:"ชิ้น"})]));
+        list.appendChild(row);
+    });
+    renderGiftStockSummary();
+}
+function saveGiftReceive() {
+    if (!S) return;
+    var total=0;
+    S.gift_catalog.forEach(function(g) {
+        var inp=$("gr-"+g.id); if(!inp) return;
+        var v=parseInt(inp.value)||0;
+        if(v>0){ S.gift_stock[g.id].received += v; total+=v; inp.value=0; }
+    });
+    if (!total) { showToast("ยังไม่ได้ใส่จำนวน",true); return; }
+    save(); renderGiftStock(); renderGiftSell();
+    showToast("✅ รับสต๊อกของฝาก "+total+" ชิ้น");
+}
+function renderGiftStockSummary() {
+    var box=$("giftStockSummary"); if(!box||!S) return; clr(box);
+    if (!S.gift_catalog.length) return;
+    S.gift_catalog.forEach(function(g) {
+        var st=S.gift_stock[g.id]||{received:0,sold:0};
+        var rem=Math.max(0,st.received-st.sold);
+        var c=el("div",{cls:"scard"});
+        c.appendChild(el("div",{cls:"scard-head"},[
+            el("span",{css:"font-size:17px;margin-right:8px",txt:"🎁"}),
+            el("span",{cls:"scard-name",txt:g.name}),
+            el("span",{cls:"badge "+(rem>0?"ok":"out"),txt:rem>0?"เหลือ "+rem+" ชิ้น":"หมด"})
+        ]));
+        var grid=el("div",{cls:"scard-grid"});
+        [{v:st.received,l:"รับเข้า"},{v:st.sold,l:"ขายแล้ว",c:"sold-c"},{v:rem,l:"คงเหลือ",c:"ok-c"}].forEach(function(s){
+            grid.appendChild(el("div",{cls:"sstat"},[el("div",{cls:"snum "+(s.c||""),txt:String(s.v)}),el("div",{cls:"slabel",txt:s.l})]));
+        });
+        c.appendChild(grid); box.appendChild(c);
+    });
+}
+
+// ── Gift summary in close tab ──
+function renderGiftSalesCard() {
+    var sc=$("giftSalesCard"); if(!sc||!S) return; clr(sc);
+    if (!S.gift_sales||!S.gift_sales.length) {
+        sc.appendChild(el("div",{cls:"empty-msg",txt:"ยังไม่มียอดของฝาก"}));return;
+    }
+    var grandAll=0, itemMap={};
+    S.gift_sales.forEach(function(sale){
+        grandAll+=sale.grandTotal;
+        sale.items.forEach(function(it){ itemMap[it.name]=(itemMap[it.name]||0)+it.qty; });
+    });
+    sc.appendChild(el("div",{cls:"rrow"},[el("span",{txt:"จำนวนออเดอร์"}),el("span",{cls:"rval",txt:S.gift_sales.length+" ครั้ง"})]));
+    var totEl=el("span",{cls:"rval",txt:"฿"+grandAll.toLocaleString()}); totEl.style.color="var(--ok)";
+    sc.appendChild(el("div",{cls:"rrow"},[el("span",{txt:"รวมยอดของฝาก"}),totEl]));
+    Object.keys(itemMap).forEach(function(name){
+        sc.appendChild(el("div",{cls:"rrow"},[el("span",{txt:name}),el("span",{cls:"rval",txt:itemMap[name]+" ชิ้น"})]));
+    });
+}
+
 // ── Init ──
 window.addEventListener("DOMContentLoaded", function() {
     // Render branch selection grid
@@ -1402,7 +1742,7 @@ window.addEventListener("DOMContentLoaded", function() {
             if (cd) cd.textContent = lastBranch;
         }
     }
-    renderSell(); updBar();
+    renderSell(); renderGiftSell(); updBar();
 });
 
 
