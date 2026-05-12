@@ -1142,67 +1142,62 @@ function renderDateStrip() {
     var strip = el("div", {cls:"date-strip"});
     var today  = new Date();
     var prefix = "puff7_" + safeBranch(currentBranch) + "_";
+    var TH_MONTHS = ["ม.ค.","ก.พ.","มี.ค.","เม.ย.","พ.ค.","มิ.ย.","ก.ค.","ส.ค.","ก.ย.","ต.ค.","พ.ย.","ธ.ค."];
     for (var i = -4; i <= 2; i++) {
-        var d = new Date(today); d.setDate(d.getDate() + i);
-        var dateStr = d.toLocaleDateString("th-TH", {timeZone:"Asia/Bangkok",year:"numeric",month:"2-digit",day:"2-digit"});
-        var hasData = i < 0 && localStorage.getItem(prefix + dateStr);
-        var pill = el("button", {cls:"dp" + (i===0?" today":"") + (i>0?" future":"") + (hasData?" has-data":"")});
-        pill.appendChild(el("span", {cls:"dp-day", txt:_DAYS[d.getDay()]}));
-        pill.appendChild(el("span", {cls:"dp-num", txt:String(d.getDate())}));
-        (function(offset, ds, dayIdx) {
+        // Capture ALL loop vars inside IIFE — avoid var-scope closure bug
+        (function(offset) {
+            var d = new Date(today); d.setDate(d.getDate() + offset);
+            var dateStr = d.toLocaleDateString("th-TH", {timeZone:"Asia/Bangkok",year:"numeric",month:"2-digit",day:"2-digit"});
+            var hasData = offset < 0 && localStorage.getItem(prefix + dateStr);
+            var dayIdx = d.getDay();
+            var dayNum = d.getDate();
+            var monthName = TH_MONTHS[d.getMonth()];
+            var pill = el("button", {cls:"dp" + (offset===0 && _selectedDateOffset===0 ? " today":"") + (offset===_selectedDateOffset && _selectedDateOffset!==0 ? " today":"") + (offset>0?" future":"") + (hasData?" has-data":"")});
+            pill.appendChild(el("span", {cls:"dp-day", txt:_DAYS[dayIdx]}));
+            pill.appendChild(el("span", {cls:"dp-num", txt:String(dayNum)}));
             pill.onclick = function() {
                 if (offset === 0) {
-                    if (_selectedDateOffset !== 0) {
-                        _selectedDateOffset = 0;
-                        S = loadBranch(currentBranch);
-                        renderHome();
-                    }
+                    // Click today: reset to live S
+                    _selectedDateOffset = 0;
+                    S = loadBranch(currentBranch);
+                    renderHome();
                     return;
                 }
+                // Click past date: render hero from loaded state
                 _selectedDateOffset = offset;
-                var loaded = loadBranch(currentBranch, ds);
-                // Show sales hero for that day without changing S
-                var hbox = $("homeSalesCard"); if (!hbox) return; clr(hbox);
-                var totA = 0, totP = 0, totO = 0;
-                if (loaded.sales) { loaded.sales.forEach(function(s){totA+=s.totalAmount;totP+=s.totalPieces;totO++;}); }
-                var card = el("div", {cls:"sales-hero"});
-                var inner = el("div", {css:"position:relative;z-index:2;max-width:62%"});
-                inner.appendChild(el("div", {cls:"sh-label", txt:"ยอดขาย · " + _DAYS[dayIdx] + " " + d.getDate() + " พ.ค."}));
-                inner.appendChild(el("div", {cls:"sh-amount", txt:"฿" + totA.toLocaleString()}));
-                inner.appendChild(el("div", {cls:"sh-detail", txt:totP + " ชิ้น · " + totO + " ออเดอร์"}));
-                card.appendChild(inner);
-                hbox.appendChild(card);
-                // Highlight selected pill
+                var loaded = loadBranch(currentBranch, dateStr);
+                renderHeroForState(loaded, _DAYS[dayIdx] + " " + dayNum + " " + monthName);
+                // Update pill highlights
                 strip.querySelectorAll(".dp").forEach(function(p){ p.classList.remove("today"); });
                 pill.classList.add("today");
-                showToast("ดูข้อมูล " + ds);
+                showToast("ดูข้อมูล " + dateStr);
             };
-        })(i, dateStr, d.getDay());
-        strip.appendChild(pill);
+            strip.appendChild(pill);
+        })(i);
     }
     box.appendChild(strip);
 }
 
-function renderSalesHero() {
+// Unified hero render — used by today AND past dates (consistent layout)
+function renderHeroForState(state, labelOverride) {
     var box = $("homeSalesCard"); if (!box) return; clr(box);
-    if (!S) return;
     var totA = 0, totP = 0, cashAmt = 0, qrAmt = 0;
-    S.sales.forEach(function(s) { totA += s.totalAmount; totP += s.totalPieces; });
-    // Approximate cash/QR split — assume 70/30 if no breakdown
+    if (state && state.sales) {
+        state.sales.forEach(function(s) { totA += s.totalAmount; totP += s.totalPieces; });
+    }
     cashAmt = Math.round(totA * 0.7); qrAmt = totA - cashAmt;
-    var ordCnt = S.sales.length;
+    var ordCnt = state && state.sales ? state.sales.length : 0;
     var avg = ordCnt ? Math.round(totA / ordCnt) : 0;
-    // 7-day avg for "vs avg" calc
-    var avgWeek = calcWeekAvg();
+    var label = labelOverride ? ("ยอดขาย · " + labelOverride) : "ยอดขาย · วันนี้";
+    var avgWeek = labelOverride ? 0 : calcWeekAvg();   // only show vs avg for today
     var card = el("div", {cls:"sales-hero"});
-    // vs avg badge
-    if (totA > 0 && avgWeek > 0) {
+    if (!labelOverride && totA > 0 && avgWeek > 0) {
         var pct = Math.round((totA - avgWeek) / avgWeek * 100);
         var badge = el("div", {cls:"sh-vs" + (pct < 0 ? " bad" : ""), txt:(pct>=0?"+":"") + pct + "% vs avg"});
         card.appendChild(badge);
     }
     var inner = el("div", {css:"position:relative;z-index:2;max-width:62%"});
-    inner.appendChild(el("div", {cls:"sh-label", txt:"ยอดขาย · วันนี้"}));
+    inner.appendChild(el("div", {cls:"sh-label", txt:label}));
     inner.appendChild(el("div", {cls:"sh-amount", txt:"฿" + totA.toLocaleString()}));
     inner.appendChild(el("div", {cls:"sh-detail", txt:totP + " ชิ้น · " + ordCnt + " ออเดอร์ · เฉลี่ย ฿" + avg.toLocaleString()}));
     if (totA > 0) {
@@ -1212,7 +1207,6 @@ function renderSalesHero() {
         inner.appendChild(chips);
     }
     card.appendChild(inner);
-    // Puff illustration
     var src = $("puffSrcImg");
     if (src) {
         var img = el("img", {cls:"sh-puff"});
@@ -1220,6 +1214,12 @@ function renderSalesHero() {
         card.appendChild(img);
     }
     box.appendChild(card);
+}
+
+function renderSalesHero() {
+    // Delegate to unified renderer — single source of truth
+    if (!S) return;
+    renderHeroForState(S, null);
 }
 
 function calcWeekAvg() {
