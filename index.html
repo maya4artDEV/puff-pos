@@ -990,7 +990,17 @@ function doLogin() {
     setBranch(_loginBranch);
     $("loginScreen").style.display = "none";
     $("mainApp").style.display     = "block";
-    go("home");
+    // Wait one frame so flex layout settles, then init nav path correctly
+    requestAnimationFrame(function() {
+        go("home");
+        // Force path render after layout
+        requestAnimationFrame(function() {
+            var cx = getNavCx(TABS.indexOf(currentTab));
+            _navToCx = _navFromCx = cx;
+            var p = $("navPath");
+            if (p) p.setAttribute("d", buildNavPath(cx));
+        });
+    });
 }
 function doLogout() {
     pauseTimer();
@@ -1059,7 +1069,12 @@ function moveNav(toIdx, fromIdx) {
     if (fromIdx === undefined) fromIdx = toIdx;
     _navFromCx = getNavCx(fromIdx);
     _navToCx   = getNavCx(toIdx);
-    if (_navFromCx === _navToCx) return;   // no animation needed
+    var p = $("navPath");
+    // No animation needed — but STILL set path (initial render case)
+    if (_navFromCx === _navToCx) {
+        if (p) p.setAttribute("d", buildNavPath(_navToCx));
+        return;
+    }
     _navAnimStart = performance.now();
     if (_navRaf) cancelAnimationFrame(_navRaf);
     _navRaf = requestAnimationFrame(navTick);
@@ -2297,11 +2312,25 @@ window.addEventListener("DOMContentLoaded", function() {
         else{var fi=$("loginFreeInput");if(fi)fi.value=lastBranch;_loginBranch=lastBranch;}
     }
     updLoginBtn();
-    // Init nav indicator
-    setTimeout(function(){
-        _navToCx=_navFromCx=getNavCx(0);
-        var p=$("navPath");if(p)p.setAttribute("d",buildNavPath(_navToCx));
-    },100);
+    // Init nav indicator — only renders if mainApp is visible
+    function initNavPath(tries) {
+        tries = tries || 0;
+        var mainEl = $("mainApp");
+        if (!mainEl || mainEl.style.display === "none") {
+            // login screen showing — skip; nav will init after doLogin
+            return;
+        }
+        var cx = getNavCx(TABS.indexOf(currentTab));
+        // Valid cx > 0 means layout has settled
+        if (cx > 0 && !isNaN(cx)) {
+            _navToCx = _navFromCx = cx;
+            var p = $("navPath");
+            if (p) p.setAttribute("d", buildNavPath(cx));
+        } else if (tries < 30) {
+            requestAnimationFrame(function() { initNavPath(tries + 1); });
+        }
+    }
+    requestAnimationFrame(function() { initNavPath(0); });
 });
 </script>
 </body>
