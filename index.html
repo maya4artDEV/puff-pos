@@ -141,11 +141,12 @@ select.lf-input{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://ww
 .sh-vs{position:absolute;top:14px;right:14px;background:rgba(255,255,255,.55);border-radius:100px;padding:4px 10px;
   font-family:var(--f);font-size:10px;font-weight:800;color:var(--ok);letter-spacing:.02em;z-index:3}
 .sh-vs.bad{color:var(--bad)}
-.sh-puff{position:absolute;right:-12px;bottom:-14px;width:175px;height:200px;object-fit:contain;
+.sh-puff{position:absolute;right:-30px;bottom:-30px;width:200px;height:240px;object-fit:contain;
   mix-blend-mode:multiply;
-  -webkit-mask:radial-gradient(ellipse 32% 78% at center,#000 56%,transparent 100%);
-  mask:radial-gradient(ellipse 32% 78% at center,#000 56%,transparent 100%);
-  pointer-events:none;opacity:.92;
+  filter:contrast(1.1) brightness(1.05);
+  -webkit-mask:radial-gradient(ellipse 55% 88% at center,#000 35%,transparent 100%);
+  mask:radial-gradient(ellipse 55% 88% at center,#000 35%,transparent 100%);
+  pointer-events:none;
   animation:puffFloat2 3.5s ease-in-out infinite}
 @keyframes puffFloat2{0%,100%{transform:translateY(0) rotate(-2deg)}50%{transform:translateY(-10px) rotate(2deg)}}
 .sc-row{display:flex;gap:10px;overflow-x:auto;padding:2px 2px 6px;scrollbar-width:none;-webkit-overflow-scrolling:touch}
@@ -1054,10 +1055,11 @@ function getNavCx(idx) {
     var btnRect = btns[idx].getBoundingClientRect();
     return ((btnRect.left - rowRect.left + btnRect.width/2) / rowRect.width) * VW;
 }
-function moveNav(idx) {
-    var prev = getNavCx(TABS.indexOf(currentTab));
-    _navFromCx = prev;
-    _navToCx   = getNavCx(idx);
+function moveNav(toIdx, fromIdx) {
+    if (fromIdx === undefined) fromIdx = toIdx;
+    _navFromCx = getNavCx(fromIdx);
+    _navToCx   = getNavCx(toIdx);
+    if (_navFromCx === _navToCx) return;   // no animation needed
     _navAnimStart = performance.now();
     if (_navRaf) cancelAnimationFrame(_navRaf);
     _navRaf = requestAnimationFrame(navTick);
@@ -1066,14 +1068,14 @@ function moveNav(idx) {
 // ── TAB NAVIGATION ──
 function go(tab) {
     if (!currentBranch && tab !== "home") { showToast("กรุณา login ก่อนใช้งาน", true); return; }
-    var prevTab = currentTab;
+    var prevIdx = TABS.indexOf(currentTab);   // capture BEFORE updating
     currentTab = tab;
     var idx = TABS.indexOf(tab);
     TABS.forEach(function(t) {
         var tb = $("tab-" + t); if (tb) tb.classList.toggle("active", t === tab);
         var pg = $("page-" + t); if (pg) pg.classList.toggle("active", t === tab);
     });
-    moveNav(idx);
+    moveNav(idx, prevIdx);
     var sb = $("sellBar"); if (sb) sb.style.display = tab === "sell" ? "block" : "none";
     if (tab === "home")  { renderHome(); }
     if (tab === "sell")  { renderStaffChip(); renderPriceBanner(); renderSell(); renderGiftSell(); updBar(); }
