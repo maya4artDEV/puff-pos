@@ -246,9 +246,9 @@ select.lf-input{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://ww
 .fry-row{background:var(--card);border:1.5px solid var(--border);border-radius:14px;display:flex;align-items:center;padding:10px 12px;gap:8px;box-shadow:var(--sh);transition:border-color .15s;margin-bottom:8px}
 .fry-two-col{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px;overflow:hidden}
 .fry-two-col .fry-row{padding:8px 10px;gap:6px;min-width:0}
-.fry-two-col .fr-emoji{font-size:16px}
+.fry-two-col .fr-emoji{display:none}
 .fry-two-col .fr-info{min-width:0;overflow:hidden}
-.fry-two-col .fr-name{font-size:11px;line-height:1.2;white-space:normal;overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
+.fry-two-col .fr-name{font-size:12px;line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .fry-two-col .fr-frozen{font-size:9px;margin-top:1px}
 .fry-two-col .fr-input{width:42px;padding:5px 2px;font-size:13px}
 .fry-two-col .fr-unit{display:none}
@@ -966,6 +966,24 @@ function setBranch(branch) {
     updateHeaderInfo();
 }
 
+// ── Stock helpers (single source of truth) ──
+function getFrozen(fid) {
+    if (!S || !S.stock || !S.stock[fid]) return 0;
+    var st = S.stock[fid];
+    var recv = st.received_pieces || (st.received_packs||0)*10;
+    return Math.max(0, recv - (st.fry_out||0));
+}
+function getReady(fid) {
+    if (!S || !S.stock || !S.stock[fid]) return 0;
+    return Math.max(0, (S.stock[fid].fry_out||0) - (S.stock[fid].sold||0));
+}
+function getStockForState(state, fid) {
+    if (!state || !state.stock || !state.stock[fid]) return 0;
+    var st = state.stock[fid];
+    var recv = st.received_pieces || (st.received_packs||0)*10;
+    return Math.max(0, recv - (st.fry_out||0));
+}
+
 // ── Staff (reads from login session) ──
 function getStaff() {
     var stored = null;
@@ -1117,7 +1135,11 @@ function go(tab) {
     });
     moveNav(idx, prevIdx);
     var sb = $("sellBar"); if (sb) sb.style.display = tab === "sell" ? "block" : "none";
-    if (tab === "home")  { renderHome(); }
+    if (tab === "home")  {
+        // Defensive: reload S from disk so we always see latest saved state
+        if (currentBranch) { S = loadBranch(currentBranch); }
+        renderHome();
+    }
     if (tab === "sell")  { renderStaffChip(); renderPriceBanner(); renderSell(); renderGiftSell(); updBar(); }
     if (tab === "fry")   { renderFryHero(); renderFryChart(); renderFryPage(); }
     if (tab === "stock") { renderStockTop3(); renderStackChart(); renderStockPage(); }
@@ -1307,11 +1329,11 @@ function renderHomeStockChart() {
     var bars = el("div", {cls:"scc-bars"});
     var maxVal = 1;
     F.forEach(function(f) {
-        var frz = Math.max(0, S.stock[f.id].received_pieces - S.stock[f.id].fry_out);
+        var frz = getFrozen(f.id);
         if (frz > maxVal) maxVal = frz;
     });
     F.forEach(function(f, i) {
-        var frz = Math.max(0, S.stock[f.id].received_pieces - S.stock[f.id].fry_out);
+        var frz = getFrozen(f.id);
         var pct = maxVal > 0 ? (frz / maxVal * 95) : 0;
         var col = el("div", {cls:"scc-col"});
         var vname = el("div", {cls:"scc-vname", txt:f.n});
@@ -1533,7 +1555,7 @@ function renderFryPage() {
     twoCol.appendChild(leftCol); twoCol.appendChild(rightCol);
     list.appendChild(twoCol);
     F.forEach(function(f, fi) {
-        var frozen = S ? Math.max(0, S.stock[f.id].received_pieces - S.stock[f.id].fry_out) : 0;
+        var frozen = getFrozen(f.id);
         var row = el("div", {cls:"fry-row", id:"fr-row-"+f.id});
         var inp = el("input", {cls:"fr-input", id:"fr-"+f.id, type:"number", min:"0", value:"0", placeholder:"0"});
         var statusCls = frozen<=0?"empty":frozen<5?"low":"";
@@ -1599,7 +1621,7 @@ function saveFry() {
     if (!items.length){showToast("ยังไม่ได้ใส่จำนวน",true);return;}
     var err=null;
     items.forEach(function(it){
-        var frozen=Math.max(0,S.stock[it.id].received_pieces-S.stock[it.id].fry_out);
+        var frozen=getFrozen(it.id);
         if(it.pieces>frozen) err=it.name+": แช่แข็งเหลือแค่ "+frozen+" ชิ้น";
     });
     if(err){showToast("❌ "+err,true);return;}
