@@ -1350,6 +1350,26 @@ function renderHomeStockChart() {
     });
     card.appendChild(bars);
     box.appendChild(card);
+
+    // Long-press card to show raw state (diagnostic)
+    var pressTimer = null;
+    var pressFired = false;
+    card.addEventListener("touchstart", function() {
+        pressFired = false;
+        pressTimer = setTimeout(function() {
+            pressFired = true;
+            var lines = ["📊 RAW STOCK STATE:"];
+            F.forEach(function(f) {
+                var st = S.stock[f.id] || {};
+                lines.push(f.n + ": recv=" + (st.received_pieces||0) + " fry=" + (st.fry_out||0) + " sold=" + (st.sold||0));
+            });
+            var pk = stateKey(currentBranch);
+            lines.push("\nKey: " + pk);
+            alert(lines.join("\n"));
+        }, 700);
+    });
+    card.addEventListener("touchend", function() { clearTimeout(pressTimer); });
+    card.addEventListener("touchmove", function() { clearTimeout(pressTimer); });
 }
 
 // ═══════════════════════════════════
