@@ -560,6 +560,7 @@ select.lf-input{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://ww
       <button class="logout-btn" onclick="doLogout()">ออกจากระบบ</button>
     </div>
     <div id="headerClock"></div>
+    <div id="syncIcon" style="font-size:11px;color:#6B9E4B;padding:0 0 4px;cursor:default;font-family:var(--fn)" title="ซิงค์แล้ว">☁✓</div>
     <div id="buildVer" style="font-family:var(--f);font-size:9px;color:var(--muted);padding:0 0 6px;opacity:.6">build 20260515.1120</div>
   </div>
 
@@ -729,6 +730,9 @@ select.lf-input{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://ww
     <div id="histContent"></div>
   </div>
 
+  <!-- HQ DASHBOARD PAGE -->
+  <div class="page" id="page-hq" style="padding-bottom:130px"></div>
+
   <!-- BUBBLE NAV BAR -->
   <div class="nav-outer">
     <svg class="nav-svg" id="navSvg" viewBox="0 0 390 82" preserveAspectRatio="none">
@@ -758,6 +762,10 @@ select.lf-input{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://ww
       <button class="tab-btn" id="tab-hist" onclick="go('hist')">
         <span class="ticon"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15.5 14.5"/></svg></span>
         <span class="tlbl">ย้อนหลัง</span>
+      </button>
+      <button class="tab-btn" id="tab-hq" onclick="go('hq')">
+        <span class="ticon"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg></span>
+        <span class="tlbl">HQ</span>
       </button>
     </div>
   </div>
@@ -943,8 +951,11 @@ function loadBranch(branch, dateStr) {
 }
 function save() {
     if (!currentBranch) return;
-    localStorage.setItem(stateKey(currentBranch), JSON.stringify(S));
+    S.lastSaved = Date.now();
+    var payload = JSON.stringify(S);
+    localStorage.setItem(stateKey(currentBranch), payload);
     localStorage.setItem("puff8_lastBranch", currentBranch);
+    queueCloudSync(currentBranch, todayISO(), S);
 }
 function setBranch(branch) {
     currentBranch = branch;
@@ -1037,18 +1048,21 @@ function doLogin() {
     var phone = ($("loginPhone")||{value:""}).value.trim();
     if (!name || !nick || !phone || !_loginBranch) { showToast("กรอกข้อมูลให้ครบก่อน", true); return; }
     localStorage.setItem("puff10_loginStaff", JSON.stringify({name:name, nick:nick, phone:phone}));
-    setBranch(_loginBranch);
-    $("loginScreen").style.display = "none";
-    $("mainApp").style.display     = "block";
-    // Wait one frame so flex layout settles, then init nav path correctly
-    requestAnimationFrame(function() {
-        go("home");
-        // Force path render after layout
+    // Show loading, prefetch cloud state, then complete login
+    var btn = $("loginBtn"); if (btn) { btn.disabled = true; btn.textContent = "กำลังโหลด..."; }
+    prefetchCloudState(_loginBranch, function() {
+        if (btn) { btn.disabled = false; btn.textContent = "เริ่มใช้งาน"; }
+        setBranch(_loginBranch);
+        $("loginScreen").style.display = "none";
+        $("mainApp").style.display     = "block";
         requestAnimationFrame(function() {
-            var cx = getNavCx(TABS.indexOf(currentTab));
-            _navToCx = _navFromCx = cx;
-            var p = $("navPath");
-            if (p) p.setAttribute("d", buildNavPath(cx));
+            go("home");
+            requestAnimationFrame(function() {
+                var cx = getNavCx(TABS.indexOf(currentTab));
+                _navToCx = _navFromCx = cx;
+                var p = $("navPath");
+                if (p) p.setAttribute("d", buildNavPath(cx));
+            });
         });
     });
 }
@@ -1085,8 +1099,9 @@ function updateHeaderInfo() {
 // ── BUBBLE NAV ──
 var VW=390, VH=82, BAR_Y=20, BUMP_R=32, BUMP_SH=16;
 var _navFromCx=0, _navToCx=0, _navAnimStart=0, _navRaf=null;
-var TABS = ["home","sell","fry","stock","close","hist"];
+var TABS = ["home","sell","fry","stock","close","hist","hq"];
 var currentTab = "home";
+var syncPending = 0;
 
 function buildNavPath(cx) {
     // EXACT match to tab-preview cubic bezier
@@ -1152,6 +1167,7 @@ function go(tab) {
     if (tab === "stock") { renderStockTop3(); renderStackChart(); renderStockPage(); }
     if (tab === "close") { renderClose(); }
     if (tab === "hist")  { renderHist(); }
+    if (tab === "hq")    { renderHQTab(); }
 }
 
 // ═══════════════════════════════════
@@ -2406,6 +2422,232 @@ window.addEventListener("DOMContentLoaded", function() {
     }
     requestAnimationFrame(function() { initNavPath(0); });
 });
+
+// ═══════════════════════════════════════════════════
+//  CLOUD SYNC ENGINE
+// ═══════════════════════════════════════════════════
+
+function prevDayISO() {
+    var d = new Date();
+    d.setDate(d.getDate() - 1);
+    return d.toLocaleDateString("th-TH", {timeZone:"Asia/Bangkok", year:"numeric", month:"2-digit", day:"2-digit"});
+}
+
+function queueCloudSync(branch, date, state) {
+    try {
+        var queue = JSON.parse(localStorage.getItem("puff10_syncQueue") || "[]");
+        queue = queue.filter(function(q) { return !(q.branch === branch && q.date === date); });
+        queue.push({branch:branch, date:date, state:state, ts:Date.now()});
+        localStorage.setItem("puff10_syncQueue", JSON.stringify(queue));
+        syncPending = queue.length;
+        updateSyncIcon();
+        if (navigator.onLine) flushSyncQueue();
+    } catch(e) {}
+}
+
+function flushSyncQueue() {
+    var queue;
+    try { queue = JSON.parse(localStorage.getItem("puff10_syncQueue") || "[]"); } catch(e) { return; }
+    if (!queue.length) { syncPending = 0; updateSyncIcon(); return; }
+    var item = queue[0];
+    var url = (item.branch && FRANCHISE_BRANCHES.indexOf(item.branch) >= 0) ? FRANCHISE_URL : OWNER_URL;
+    fetch(url, {
+        method: "POST", mode: "no-cors",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({type:"state_save", branch:item.branch, date:item.date, state:item.state})
+    }).then(function() {
+        var q;
+        try { q = JSON.parse(localStorage.getItem("puff10_syncQueue") || "[]"); } catch(e2) { q = []; }
+        q = q.filter(function(qi) { return !(qi.branch === item.branch && qi.date === item.date); });
+        localStorage.setItem("puff10_syncQueue", JSON.stringify(q));
+        syncPending = q.length;
+        updateSyncIcon();
+        if (q.length) flushSyncQueue();
+    }).catch(function() { updateSyncIcon(); });
+}
+
+function prefetchCloudState(branch, callback) {
+    if (!navigator.onLine) { callback(); return; }
+    var today = todayISO();
+    var yesterday = prevDayISO();
+    var baseUrl = (FRANCHISE_BRANCHES.indexOf(branch) >= 0) ? FRANCHISE_URL : OWNER_URL;
+    var fetched = 0;
+    function done() { fetched++; if (fetched >= 2) callback(); }
+    function tryFetch(date) {
+        fetch(baseUrl + "?type=state_get&branch=" + encodeURIComponent(branch) + "&date=" + encodeURIComponent(date))
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            if (data.ok && data.state) {
+                var key = stateKey(branch, date === today ? undefined : date);
+                if (date !== today) { key = "puff7_" + safeBranch(branch) + "_" + date; }
+                var localRaw = localStorage.getItem(key);
+                var localTs  = localRaw ? (JSON.parse(localRaw).lastSaved || 0) : 0;
+                var cloudTs  = data.state.lastSaved || 0;
+                if (cloudTs > localTs) localStorage.setItem(key, JSON.stringify(data.state));
+            }
+            done();
+        }).catch(done);
+    }
+    tryFetch(today);
+    tryFetch(yesterday);
+}
+
+function updateSyncIcon() {
+    var el = $("syncIcon"); if (!el) return;
+    var queue;
+    try { queue = JSON.parse(localStorage.getItem("puff10_syncQueue") || "[]"); } catch(e) { queue = []; }
+    if (!navigator.onLine) {
+        el.textContent = "☁✗"; el.style.color = "#D26A5C";
+        el.title = "ออฟไลน์ — " + queue.length + " รายการรอส่ง";
+    } else if (queue.length > 0) {
+        el.textContent = "☁⟳"; el.style.color = "#F2B33D";
+        el.title = "กำลังซิงค์ " + queue.length + " รายการ";
+    } else {
+        el.textContent = "☁✓"; el.style.color = "#6B9E4B";
+        el.title = "ซิงค์แล้ว";
+    }
+}
+
+window.addEventListener("online",  function() { flushSyncQueue(); updateSyncIcon(); });
+window.addEventListener("offline", function() { updateSyncIcon(); });
+
+// ═══════════════════════════════════════════════════
+//  HQ TAB — DASHBOARD + PIN AUTH
+// ═══════════════════════════════════════════════════
+
+var HQ_BRANCH_LABEL  = "HQ-00";
+var _hqAuthed        = false;
+
+function checkHQAuth() {
+    if (_hqAuthed) return true;
+    var stored = localStorage.getItem("puff10_hqPin");
+    var session = parseInt(localStorage.getItem("puff10_hqSession") || "0");
+    if (!stored) return false;
+    if (Date.now() - session < 8 * 3600 * 1000) { _hqAuthed = true; return true; }
+    return false;
+}
+
+function renderHQTab() {
+    var pg = $("page-hq"); if (!pg) return;
+    clr(pg);
+    if (checkHQAuth()) { renderHQDashboard(pg); }
+    else {
+        var stored = localStorage.getItem("puff10_hqPin");
+        if (!stored) { renderHQSetupPin(pg); }
+        else         { renderHQEnterPin(pg); }
+    }
+}
+
+function renderHQSetupPin(pg) {
+    var wrap = el("div", {css:"max-width:400px;margin:0 auto;padding:24px 16px"});
+    wrap.appendChild(el("div", {txt:"ตั้ง PIN ครั้งแรก", css:"font-family:var(--fb);font-size:20px;color:var(--cocoa);margin-bottom:6px"}));
+    wrap.appendChild(el("div", {txt:"PIN นี้ใช้เข้าหน้า HQ Dashboard — ตั้งได้ 4-6 หลัก", css:"font-size:12px;color:var(--muted);margin-bottom:24px"}));
+    var inp1 = el("input", {type:"tel", maxlength:"6", placeholder:"PIN ใหม่ (4-6 หลัก)", css:"width:100%;padding:14px;font-size:20px;letter-spacing:6px;text-align:center;border:1.5px solid var(--cream2);border-radius:12px;background:#fff;margin-bottom:12px;box-sizing:border-box"});
+    var inp2 = el("input", {type:"tel", maxlength:"6", placeholder:"ยืนยัน PIN อีกครั้ง", css:"width:100%;padding:14px;font-size:20px;letter-spacing:6px;text-align:center;border:1.5px solid var(--cream2);border-radius:12px;background:#fff;margin-bottom:20px;box-sizing:border-box"});
+    var btn = el("button", {txt:"ตั้ง PIN", css:"width:100%;padding:16px;background:var(--cocoa);color:#fff;border:none;border-radius:12px;font-family:var(--fb);font-size:16px;cursor:pointer"});
+    btn.onclick = function() {
+        var p1 = inp1.value.trim(); var p2 = inp2.value.trim();
+        if (p1.length < 4) { showToast("PIN ต้องมีอย่างน้อย 4 หลัก", true); return; }
+        if (p1 !== p2)     { showToast("PIN ไม่ตรงกัน", true); return; }
+        localStorage.setItem("puff10_hqPin", btoa(p1));
+        localStorage.setItem("puff10_hqSession", String(Date.now()));
+        _hqAuthed = true;
+        showToast("ตั้ง PIN สำเร็จ");
+        renderHQTab();
+    };
+    wrap.appendChild(inp1); wrap.appendChild(inp2); wrap.appendChild(btn);
+    pg.appendChild(wrap);
+}
+
+function renderHQEnterPin(pg) {
+    var wrap = el("div", {css:"max-width:400px;margin:0 auto;padding:24px 16px"});
+    wrap.appendChild(el("div", {txt:"HQ Dashboard", css:"font-family:var(--fb);font-size:20px;color:var(--cocoa);margin-bottom:6px"}));
+    wrap.appendChild(el("div", {txt:"ใส่ PIN เพื่อเข้าใช้งาน", css:"font-size:12px;color:var(--muted);margin-bottom:24px"}));
+    var inp = el("input", {type:"tel", maxlength:"6", placeholder:"PIN", css:"width:100%;padding:14px;font-size:24px;letter-spacing:8px;text-align:center;border:1.5px solid var(--cream2);border-radius:12px;background:#fff;margin-bottom:20px;box-sizing:border-box"});
+    var btn = el("button", {txt:"เข้าสู่ระบบ HQ", css:"width:100%;padding:16px;background:var(--cocoa);color:#fff;border:none;border-radius:12px;font-family:var(--fb);font-size:16px;cursor:pointer"});
+    btn.onclick = function() {
+        var stored = localStorage.getItem("puff10_hqPin") || "";
+        var entered = btoa(inp.value.trim());
+        if (entered === stored) {
+            localStorage.setItem("puff10_hqSession", String(Date.now()));
+            _hqAuthed = true;
+            renderHQTab();
+        } else {
+            showToast("PIN ไม่ถูกต้อง", true);
+            inp.value = "";
+        }
+    };
+    inp.addEventListener("keyup", function(ev) { if (ev.key === "Enter") btn.onclick(); });
+    wrap.appendChild(inp); wrap.appendChild(btn);
+    pg.appendChild(wrap);
+}
+
+function renderHQDashboard(pg) {
+    pg.appendChild(el("div", {txt:"HQ Dashboard", css:"font-family:var(--fb);font-size:18px;color:var(--cocoa);padding:20px 16px 8px"}));
+    pg.appendChild(el("div", {txt:"กำลังโหลดข้อมูลสาขา...", css:"font-size:12px;color:var(--muted);padding:0 16px 16px"}));
+    if (!navigator.onLine) {
+        var box = $("page-hq").querySelector("div:last-child");
+        if (box) box.textContent = "ออฟไลน์ — ไม่สามารถโหลดข้อมูลได้";
+        return;
+    }
+    fetch(OWNER_URL + "?type=state_list")
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+        var pg2 = $("page-hq"); if (!pg2) return;
+        clr(pg2);
+        pg2.appendChild(el("div", {css:"display:flex;justify-content:space-between;align-items:center;padding:16px 16px 4px"}, [
+            el("div", {txt:"HQ Dashboard", css:"font-family:var(--fb);font-size:18px;color:var(--cocoa)"}),
+            el("button", {txt:"รีเฟรช", css:"font-size:11px;padding:4px 12px;border:1px solid var(--cream2);border-radius:8px;background:#fff;color:var(--cocoa);cursor:pointer", onclick:"go('hq')"})
+        ]));
+        if (!data.ok || !data.states || !data.states.length) {
+            pg2.appendChild(el("div", {txt:"ยังไม่มีข้อมูลสาขา", css:"padding:32px 16px;text-align:center;color:var(--muted);font-size:13px"}));
+            return;
+        }
+        // Group by branch — show latest per branch
+        var byBranch = {};
+        data.states.forEach(function(s) {
+            if (!byBranch[s.branch] || s.date > byBranch[s.branch].date) byBranch[s.branch] = s;
+        });
+        var today = todayISO();
+        Object.keys(byBranch).sort().forEach(function(branch) {
+            var s = byBranch[branch];
+            var isToday = s.date === today;
+            var card = el("div", {css:"background:#fff;border-radius:14px;margin:8px 12px;padding:14px 16px;border:1px solid var(--cream2)"});
+            var top = el("div", {css:"display:flex;justify-content:space-between;align-items:center;margin-bottom:10px"});
+            var dot = isToday ? "#6B9E4B" : "#B0A090";
+            top.appendChild(el("div", {css:"display:flex;align-items:center;gap:8px"}, [
+                el("div", {css:"width:8px;height:8px;border-radius:50%;background:" + dot + ";flex-shrink:0"}),
+                el("div", {txt:branch, css:"font-family:var(--fb);font-size:14px;color:var(--cocoa)"})
+            ]));
+            top.appendChild(el("div", {txt:isToday ? "วันนี้" : s.date, css:"font-size:10px;color:" + (isToday?"var(--mustard)":"var(--muted)")}));
+            card.appendChild(top);
+            if (s.lastStaff && s.lastStaff.nick) {
+                card.appendChild(el("div", {txt:"พนักงาน: " + s.lastStaff.nick + " (" + s.lastStaff.name + ")", css:"font-size:11px;color:var(--muted);margin-bottom:8px"}));
+            }
+            var nums = el("div", {css:"display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px"});
+            function numBox(label, val, color) {
+                return el("div", {css:"background:var(--bg);border-radius:8px;padding:6px;text-align:center"}, [
+                    el("div", {txt:val, css:"font-family:var(--fn);font-size:16px;font-weight:700;color:" + color}),
+                    el("div", {txt:label, css:"font-size:9px;color:var(--muted);margin-top:1px"})
+                ]);
+            }
+            nums.appendChild(numBox("ยอด ฿", Number(s.totalAmount||0).toLocaleString(), "var(--cocoa)"));
+            nums.appendChild(numBox("ขายแล้ว", (s.soldPieces||0) + " ชิ้น", "var(--mustard)"));
+            nums.appendChild(numBox("แช่แข็ง", (s.frozenPieces||0) + " ชิ้น", "var(--cocoa)"));
+            card.appendChild(nums);
+            if (s.updated_at) {
+                card.appendChild(el("div", {txt:"อัปเดต: " + s.updated_at, css:"font-size:9px;color:var(--muted);margin-top:8px;text-align:right"}));
+            }
+            pg2.appendChild(card);
+        });
+        pg2.appendChild(el("div", {css:"height:120px"}));
+    })
+    .catch(function() {
+        var pg2 = $("page-hq"); if (!pg2) return;
+        var err = pg2.querySelector("div:last-child");
+        if (err) err.textContent = "โหลดข้อมูลไม่ได้ — ตรวจสอบการเชื่อมต่อ";
+    });
+}
 </script>
 </body>
 </html>
