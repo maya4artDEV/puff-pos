@@ -2474,18 +2474,29 @@ function flushSyncQueue() {
 
 function prefetchCloudState(branch, callback) {
     if (!navigator.onLine) { callback(); return; }
+    // Timeout safety: never block login more than 4 seconds
+    var called = false;
+    var timer = setTimeout(function() {
+        if (!called) { called = true; callback(); }
+    }, 4000);
     var today = todayISO();
     var yesterday = prevDayISO();
     var baseUrl = getSyncURL(branch);
     var fetched = 0;
-    function done() { fetched++; if (fetched >= 2) callback(); }
+    function done() {
+        fetched++;
+        if (fetched >= 2 && !called) {
+            called = true;
+            clearTimeout(timer);
+            callback();
+        }
+    }
     function tryFetch(date) {
         fetch(baseUrl + "?type=state_get&branch=" + encodeURIComponent(branch) + "&date=" + encodeURIComponent(date))
         .then(function(r) { return r.json(); })
         .then(function(data) {
             if (data.ok && data.state) {
-                var key = stateKey(branch, date === today ? undefined : date);
-                if (date !== today) { key = "puff7_" + safeBranch(branch) + "_" + date; }
+                var key = "puff7_" + safeBranch(branch) + "_" + date;
                 var localRaw = localStorage.getItem(key);
                 var localTs  = localRaw ? (JSON.parse(localRaw).lastSaved || 0) : 0;
                 var cloudTs  = data.state.lastSaved || 0;
