@@ -458,6 +458,8 @@ select.lf-input{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://ww
 
 /* ── TIMER MODAL ── */
 .modal-overlay{position:fixed;inset:0;background:rgba(42,31,20,.6);z-index:500;display:flex;align-items:flex-end;opacity:0;pointer-events:none;transition:opacity .25s}
+.modal-box{background:#fff;border-radius:20px;margin:auto;width:calc(100% - 32px);max-width:420px;max-height:90vh;overflow-y:auto;animation:slideUp .25s ease-out}
+@keyframes slideUp{from{transform:translateY(20px);opacity:0}to{transform:translateY(0);opacity:1}}
 .modal-overlay.open{opacity:1;pointer-events:all}
 .modal-sheet{background:var(--card);border-radius:24px 24px 0 0;padding:20px 20px 40px;width:100%;max-height:92vh;overflow-y:auto;transform:translateY(60px);transition:transform .3s}
 .modal-overlay.open .modal-sheet{transform:translateY(0)}
@@ -1352,12 +1354,230 @@ var _scData = [
     {icon:"📦",title:"รับสต็อค",     sub:"อัปเดตสต๊อก",    bg:"var(--sage)",  tab:"stock"},
     {icon:"🔥",title:"บันทึกทอด",   sub:"ตัดสต๊อกแช่แข็ง", bg:"#F5E5C0",      tab:"fry"},
     {icon:"⏱️",title:"ตั้งเวลาทอด", sub:"4 ขั้นตอน",       bg:"var(--lilac)", tab:"timer"},
+    {icon:"🛵",title:"บันทึก Delivery",sub:"Grab/LineMan/ฯลฯ",bg:"#E3F2FD",      tab:"delivery"},
+    {icon:"🌙",title:"ปิดวัน",       sub:"นับเงิน·สรุปยอด", bg:"#FFE4E1",      tab:"close"},
 ];
+// ═══════════════════════════════════════════════════
+//  DELIVERY SALES — Grab / LineMan / Robinhood / ShopeeFood
+// ═══════════════════════════════════════════════════
+
+var DELIVERY_APPS = ["Grab", "LineMan", "Robinhood", "ShopeeFood", "อื่นๆ"];
+var _dlvItems = {};         // {fillingId: qty}
+var _dlvImage = "";         // base64 dataURL
+var _dlvApp   = "Grab";
+
+function openDeliveryModal() {
+    if (!S) { showToast("กรุณา login ก่อน", true); return; }
+    if (!S.delivery_sales) S.delivery_sales = [];
+    _dlvItems = {};
+    _dlvImage = "";
+    _dlvApp   = "Grab";
+
+    var modal = el("div", {cls:"modal-overlay", id:"dlvModal", css:"opacity:1;pointer-events:all;align-items:center;justify-content:center"});
+    var box   = el("div", {cls:"modal-box", css:"max-width:420px;max-height:90vh;overflow-y:auto"});
+
+    // Header
+    var hdr = el("div", {css:"display:flex;justify-content:space-between;align-items:center;padding:14px 18px;border-bottom:1px solid var(--cream2);position:sticky;top:0;background:#fff;z-index:2"});
+    hdr.appendChild(el("div", {txt:"🛵 บันทึก Delivery", css:"font-family:var(--fb);font-size:16px;color:var(--cocoa)"}));
+    var closeBtn = el("button", {txt:"×", css:"background:none;border:none;font-size:24px;color:var(--muted);cursor:pointer;line-height:1"});
+    closeBtn.onclick = closeDeliveryModal;
+    hdr.appendChild(closeBtn);
+    box.appendChild(hdr);
+
+    var body = el("div", {css:"padding:14px 18px"});
+
+    // App selector
+    body.appendChild(el("div", {txt:"ผ่านแอป", css:"font-family:var(--fb);font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.1em;margin-bottom:6px"}));
+    var appRow = el("div", {css:"display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:16px"});
+    DELIVERY_APPS.forEach(function(a) {
+        var btn = el("button", {cls:"dlv-app-btn", txt:a, css:"padding:10px 4px;border-radius:10px;border:1.5px solid var(--cream2);background:#fff;font-size:12px;color:var(--cocoa);font-family:var(--fb);cursor:pointer"});
+        if (a === _dlvApp) { btn.style.background = "var(--mustard)"; btn.style.borderColor = "var(--mustard-deep)"; }
+        btn.onclick = function() {
+            _dlvApp = a;
+            [].slice.call(appRow.children).forEach(function(b) { b.style.background = "#fff"; b.style.borderColor = "var(--cream2)"; });
+            btn.style.background = "var(--mustard)";
+            btn.style.borderColor = "var(--mustard-deep)";
+        };
+        appRow.appendChild(btn);
+    });
+    body.appendChild(appRow);
+
+    // Amount inputs (Gross + Net)
+    body.appendChild(el("div", {txt:"ยอดเงิน (บาท)", css:"font-family:var(--fb);font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.1em;margin-bottom:6px"}));
+    var amtRow = el("div", {css:"display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:16px"});
+    var grossWrap = el("div");
+    grossWrap.appendChild(el("div", {txt:"Gross (ลูกค้าจ่าย)", css:"font-size:10px;color:var(--muted);margin-bottom:3px"}));
+    grossWrap.appendChild(el("input", {id:"dlvGross", type:"number", min:"0", value:"0", css:"width:100%;padding:10px;border:1.5px solid var(--cream2);border-radius:10px;font-family:var(--fn);font-size:16px;font-weight:700;text-align:center;color:var(--cocoa);box-sizing:border-box"}));
+    amtRow.appendChild(grossWrap);
+    var netWrap = el("div");
+    netWrap.appendChild(el("div", {txt:"Net (ที่ร้านได้)", css:"font-size:10px;color:var(--muted);margin-bottom:3px"}));
+    netWrap.appendChild(el("input", {id:"dlvNet", type:"number", min:"0", value:"0", css:"width:100%;padding:10px;border:1.5px solid var(--ok);border-radius:10px;font-family:var(--fn);font-size:16px;font-weight:700;text-align:center;color:var(--ok-fg);box-sizing:border-box"}));
+    amtRow.appendChild(netWrap);
+    body.appendChild(amtRow);
+
+    // Item picker (same as sell page — แต่กรอกจำนวนเอง)
+    body.appendChild(el("div", {txt:"รายการขาย (ระบุไส้และจำนวน)", css:"font-family:var(--fb);font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.1em;margin-bottom:6px"}));
+    var itemBox = el("div", {css:"background:var(--bg);border-radius:12px;padding:10px;margin-bottom:16px"});
+    F.forEach(function(f) {
+        var row = el("div", {css:"display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:0.5px solid var(--cream2)"});
+        row.appendChild(el("span", {txt:f.e, css:"font-size:16px"}));
+        row.appendChild(el("span", {txt:f.n, css:"flex:1;font-size:12px;color:var(--cocoa)"}));
+        var inp = el("input", {id:"dlvi-"+f.id, type:"number", min:"0", value:"0", css:"width:60px;padding:6px;border:1px solid var(--cream2);border-radius:8px;font-family:var(--fn);font-weight:700;text-align:center;font-size:14px;color:var(--cocoa)"});
+        inp.onchange = function() {
+            var v = parseInt(inp.value) || 0;
+            if (v > 0) _dlvItems[f.id] = v;
+            else delete _dlvItems[f.id];
+            updateDlvSummary();
+        };
+        row.appendChild(inp);
+        row.appendChild(el("span", {txt:"ชิ้น", css:"font-size:10px;color:var(--muted);width:24px"}));
+        itemBox.appendChild(row);
+    });
+    body.appendChild(itemBox);
+
+    // Summary
+    var sumBox = el("div", {id:"dlvSummary", css:"background:var(--cream);border-radius:10px;padding:10px 12px;margin-bottom:16px;font-size:12px;color:var(--cocoa);text-align:center"});
+    sumBox.textContent = "รวม 0 ชิ้น";
+    body.appendChild(sumBox);
+
+    // Image attach (optional)
+    body.appendChild(el("div", {txt:"แนบหลักฐาน (Optional)", css:"font-family:var(--fb);font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.1em;margin-bottom:6px"}));
+    var imgBox = el("div", {css:"position:relative;margin-bottom:16px"});
+    var imgPreview = el("div", {id:"dlvImgPreview", css:"width:100%;min-height:80px;border:2px dashed var(--cream2);border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:11px;color:var(--muted);overflow:hidden;background:var(--bg)"});
+    imgPreview.textContent = "📷 แตะเพื่อแนบ screenshot";
+    var fileInp = el("input", {type:"file", id:"dlvFile", accept:"image/*", css:"position:absolute;inset:0;opacity:0;cursor:pointer"});
+    fileInp.onchange = handleDlvImage;
+    imgBox.appendChild(imgPreview);
+    imgBox.appendChild(fileInp);
+    body.appendChild(imgBox);
+
+    // Note
+    body.appendChild(el("div", {txt:"หมายเหตุ (Optional)", css:"font-family:var(--fb);font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.1em;margin-bottom:6px"}));
+    var noteInp = el("textarea", {id:"dlvNote", placeholder:"หมายเหตุเพิ่มเติม...", css:"width:100%;min-height:60px;padding:10px;border:1.5px solid var(--cream2);border-radius:10px;font-family:var(--ft);font-size:13px;color:var(--cocoa);box-sizing:border-box;resize:vertical;margin-bottom:18px"});
+    body.appendChild(noteInp);
+
+    // Save button
+    var saveBtn = el("button", {txt:"✓ บันทึก Delivery", css:"width:100%;padding:14px;background:var(--cocoa);color:#fff;border:none;border-radius:12px;font-family:var(--fb);font-size:15px;cursor:pointer"});
+    saveBtn.onclick = saveDelivery;
+    body.appendChild(saveBtn);
+
+    box.appendChild(body);
+    modal.appendChild(box);
+    document.body.appendChild(modal);
+}
+
+function closeDeliveryModal() {
+    var m = $("dlvModal");
+    if (m) m.remove();
+}
+
+function updateDlvSummary() {
+    var sum = $("dlvSummary"); if (!sum) return;
+    var total = 0;
+    Object.keys(_dlvItems).forEach(function(k) { total += _dlvItems[k]; });
+    sum.textContent = "รวม " + total + " ชิ้น";
+}
+
+function handleDlvImage(ev) {
+    var file = ev.target.files && ev.target.files[0]; if (!file) return;
+    // Resize + compress to keep payload small (max 800px, 70% quality)
+    var reader = new FileReader();
+    reader.onload = function(e) {
+        var img = new Image();
+        img.onload = function() {
+            var maxDim = 800;
+            var w = img.width, h = img.height;
+            if (w > maxDim || h > maxDim) {
+                var ratio = Math.min(maxDim / w, maxDim / h);
+                w = Math.round(w * ratio); h = Math.round(h * ratio);
+            }
+            var cv = document.createElement("canvas");
+            cv.width = w; cv.height = h;
+            cv.getContext("2d").drawImage(img, 0, 0, w, h);
+            _dlvImage = cv.toDataURL("image/jpeg", 0.7);
+            var prev = $("dlvImgPreview");
+            if (prev) {
+                clr(prev);
+                var im = el("img", {css:"max-width:100%;max-height:200px;border-radius:8px"});
+                im.src = _dlvImage;
+                prev.appendChild(im);
+            }
+        };
+        img.src = e.target.result;
+    };
+    reader.readAsDataURL(file);
+}
+
+function saveDelivery() {
+    if (!S) return;
+    var gross = parseInt(($("dlvGross")||{value:"0"}).value) || 0;
+    var net   = parseInt(($("dlvNet")||{value:"0"}).value)   || 0;
+    var note  = ($("dlvNote")||{value:""}).value.trim();
+    var totalPieces = 0;
+    var items = [];
+    F.forEach(function(f) {
+        var q = _dlvItems[f.id] || 0;
+        if (q > 0) { totalPieces += q; items.push({id:f.id, name:f.n, pieces:q}); }
+    });
+    if (gross <= 0 && net <= 0) { showToast("กรุณาใส่ยอด Gross หรือ Net", true); return; }
+    if (!items.length) { showToast("กรุณาระบุไส้และจำนวน", true); return; }
+
+    // Validate stock — same as sell
+    var err = null;
+    items.forEach(function(it) {
+        var avail = S.stock[it.id].fry_out - S.stock[it.id].sold;
+        if (it.pieces > avail) err = it.name + ": พร้อมขายแค่ " + avail + " ชิ้น";
+    });
+    if (err) { showToast("❌ " + err, true); return; }
+
+    // Update stock — treat as sold
+    items.forEach(function(it) { S.stock[it.id].sold += it.pieces; });
+
+    var ts = new Date().toLocaleString("th-TH", {timeZone:"Asia/Bangkok"});
+    var record = {
+        ts: ts, app: _dlvApp,
+        grossAmount: gross, netAmount: net,
+        pieceCount: totalPieces, items: items,
+        hasImage: !!_dlvImage, note: note
+    };
+    S.delivery_sales.push(record);
+    save();
+
+    // Telegram notification (no image in TG — too big; just text)
+    var itemList = items.map(function(i) { return "  • " + i.name + " × " + i.pieces + " ชิ้น"; }).join("\n");
+    var msg = "🛵 ยอดขาย Delivery\n━━━━━━━━━━━━━━━\n" +
+              "📍 สาขา: " + currentBranch + "\n" +
+              "🚚 ผ่าน: " + _dlvApp + "\n" +
+              "📦 รายการ:\n" + itemList + "\n" +
+              "📊 รวม: " + totalPieces + " ชิ้น\n" +
+              "💰 Gross: ฿" + gross.toLocaleString() + "\n" +
+              "💵 Net:   ฿" + net.toLocaleString() + "\n" +
+              (record.hasImage ? "📸 มีภาพแนบ\n" : "") +
+              (note ? "📝 " + note + "\n" : "") +
+              "🕐 " + ts;
+    fetch(getSheetURL(), {
+        method:"POST", mode:"no-cors",
+        headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({
+            type:"delivery_sale", ts:ts, branch:currentBranch,
+            app:_dlvApp, gross:gross, net:net,
+            totalPieces:totalPieces, items:items,
+            note:note, image:_dlvImage,
+            tgMessage:msg,
+            staff: S.lastStaff || {}
+        })
+    }).catch(function(){});
+
+    closeDeliveryModal();
+    renderSell(); renderStockTop3(); renderStackChart();
+    showToast("✅ บันทึก Delivery " + totalPieces + " ชิ้น");
+}
+
 function renderShortcuts() {
     var row = $("scRow"); if (!row) return; clr(row);
     var stored = null;
     try { stored = JSON.parse(localStorage.getItem("puff10_scOrder")); } catch(e) {}
-    var order = stored || [0,1,2,3];
+    var order = stored || [0,1,2,3,4,5];
     var dragSrc = null;
     order.forEach(function(dataIdx) {
         var c = _scData[dataIdx];
@@ -1393,7 +1613,11 @@ function renderShortcuts() {
             }
         });
         (function(tab) {
-            card.onclick = function() { tab === "timer" ? openTimer() : go(tab); };
+            card.onclick = function() {
+                if (tab === "timer") openTimer();
+                else if (tab === "delivery") openDeliveryModal();
+                else go(tab);
+            };
         })(c.tab);
         row.appendChild(card);
     });
@@ -1809,12 +2033,10 @@ function renderStockPage() {
     var rList=$("receiveList"); if(!rList)return; clr(rList);
     F.forEach(function(f){
         var row=el("div",{cls:"rx-row"});
-        var pi=el("input",{cls:"rx-input",id:"rp-"+f.id,type:"number",min:"0",value:"0",placeholder:"0"});
         var pci=el("input",{cls:"rx-input",id:"rpi-"+f.id,type:"number",min:"0",value:"0",placeholder:"0"});
         row.appendChild(el("span",{cls:"rx-emoji",txt:f.e}));
         row.appendChild(el("span",{cls:"rx-name",txt:f.n}));
-        row.appendChild(el("div",{cls:"rx-inputs"},[pi,el("span",{cls:"rx-lbl",txt:"แพ็ค"})]));
-        row.appendChild(el("div",{cls:"rx-inputs",css:"margin-left:6px"},[pci,el("span",{cls:"rx-lbl",txt:"ชิ้น"})]));
+        row.appendChild(el("div",{cls:"rx-inputs"},[pci,el("span",{cls:"rx-lbl",txt:"ชิ้น"})]));
         rList.appendChild(row);
     });
     renderStockSummary(); renderStockLog(); renderGiftStock();
@@ -1859,10 +2081,8 @@ function saveReceive() {
     if(!S)return;
     var items=[];
     F.forEach(function(f){
-        var packs=parseInt(($("rp-"+f.id)||{value:"0"}).value)||0;
         var pieces=parseInt(($("rpi-"+f.id)||{value:"0"}).value)||0;
-        var total=packs*10+pieces;
-        if(total>0)items.push({id:f.id,pieces:total});
+        if(pieces>0)items.push({id:f.id,pieces:pieces});
     });
     if(!items.length){showToast("ยังไม่ได้ใส่จำนวน",true);return;}
     items.forEach(function(it){S.stock[it.id].received_pieces+=it.pieces;});
@@ -2029,10 +2249,14 @@ function calcClose() {
     var ca=parseInt(($("cashAmount")||{value:"0"}).value)||0;
     var tw=0;(S.withdrawals||[]).forEach(function(w){tw+=w.amount||0;});
     var tr=parseInt(($("transferAmount")||{value:"0"}).value)||0;
-    var net=ca-fl-tw+tr;
-    var expected=S.sales.reduce(function(a,s){return a+s.totalAmount;},0);
+    var dlv=0;(S.delivery_sales||[]).forEach(function(d){dlv+=(d.netAmount||0);});
+    var net=ca-fl-tw+tr+dlv;
+    var puffAmt=S.sales.reduce(function(a,s){return a+s.totalAmount;},0);
+    var giftAmt=0;(S.gift_sales||[]).forEach(function(g){giftAmt+=(g.grandTotal||0);});
+    var dlvGross=0;(S.delivery_sales||[]).forEach(function(d){dlvGross+=(d.netAmount||0);});
+    var expected=puffAmt+giftAmt+dlvGross;
     var cr=$("closeResult");if(!cr)return;
-    if(!ca&&!tr){clr(cr);return;}
+    if(!ca&&!tr&&!dlv){clr(cr);return;}
     var diff=net-expected;
     var cls2,icon,title,sub;
     if(diff===0){cls2="diff-ok";icon="✅";title="ยอดเงินตรงพอดี";sub="฿"+net.toLocaleString()+" = ยอดคาด ฿"+expected.toLocaleString();}
@@ -2045,10 +2269,25 @@ function calcClose() {
     info.appendChild(el("div",{cls:"diff-title",txt:title}));
     info.appendChild(el("div",{cls:"diff-sub",txt:sub}));
     card.appendChild(info); cr.appendChild(card);
+    // Breakdown of expected
+    if(giftAmt>0||dlvGross>0){
+        var bd=el("div",{cls:"checklist",css:"margin-top:8px"});
+        bd.appendChild(el("div",{cls:"cl-title",txt:"📊 ยอดคาดประกอบด้วย"}));
+        var rows=[{l:"พัฟสติ๊กหน้าร้าน",v:puffAmt}];
+        if(giftAmt>0) rows.push({l:"ของฝาก",v:giftAmt});
+        if(dlvGross>0) rows.push({l:"Delivery (net)",v:dlvGross});
+        rows.forEach(function(r){
+            var item=el("div",{cls:"cl-item"});
+            item.appendChild(el("span",{txt:r.l,css:"flex:1"}));
+            item.appendChild(el("span",{txt:"฿"+r.v.toLocaleString(),css:"font-family:var(--fn);font-weight:700"}));
+            bd.appendChild(item);
+        });
+        cr.appendChild(bd);
+    }
     if(diff<0){
         var cl=el("div",{cls:"checklist"});
         cl.appendChild(el("div",{cls:"cl-title",txt:"🔍 ไกด์ไลน์ตรวจเงินขาด"}));
-        ["นับขนมหน้าตู้ผิด — นับใหม่","ลืมหักเงินทอน","มีรายการจ่ายออกที่ยังไม่บันทึก","ทอนเงินผิด","ราคาต่อชิ้นไม่ตรง","ลืมใส่ขนมเสีย/แถมฟรี"].forEach(function(t,i){
+        ["นับขนมหน้าตู้ผิด — นับใหม่","ลืมหักเงินทอน","มีรายการจ่ายออกที่ยังไม่บันทึก","ทอนเงินผิด","ราคาต่อชิ้นไม่ตรง","ลืมใส่ขนมเสีย/แถมฟรี","ลืมบันทึก Delivery"].forEach(function(t,i){
             var item=el("div",{cls:"cl-item"});
             item.appendChild(el("div",{cls:"cl-num",txt:String(i+1)}));
             item.appendChild(el("span",{txt:t}));
