@@ -636,6 +636,11 @@ input:focus-visible,select:focus-visible,textarea:focus-visible{outline:none}
     </div>
     <div class="fill-list" id="sellList"></div>
     <div class="divider"></div>
+    <span class="sec-lbl">🛵 ขายผ่าน Delivery</span>
+    <div class="tip" style="background:#E3F2FD;border-color:#90CAF9;color:var(--cocoa)">บันทึกยอดจาก Grab, LineMan, Robinhood, ShopeeFood — แยกจากเงินสด</div>
+    <div id="dlvInlineSection"></div>
+    <div id="dlvTodaySummary"></div>
+    <div class="divider"></div>
     <span class="sec-lbl">🎁 ของฝาก</span>
     <div class="tip" style="background:var(--sage);border-color:#A3D977;color:var(--cocoa)">สินค้าของฝากสาขา — กด + เพิ่มรายการ</div>
     <div id="giftSellList"></div>
@@ -1221,7 +1226,7 @@ function go(tab) {
         if (currentBranch) { S = loadBranch(currentBranch); }
         renderHome();
     }
-    if (tab === "sell")  { renderStaffChip(); renderPriceBanner(); renderSell(); renderGiftSell(); updBar(); }
+    if (tab === "sell")  { renderStaffChip(); renderPriceBanner(); renderSell(); renderDeliveryInline(); renderDeliveryTodaySummary(); renderGiftSell(); updBar(); }
     if (tab === "fry")   { renderFryHero(); renderFryChart(); renderFryPage(); }
     if (tab === "stock") { renderStockTop3(); renderStackChart(); renderStockPage(); }
     if (tab === "close") { renderClose(); }
@@ -1366,31 +1371,18 @@ var _dlvItems = {};         // {fillingId: qty}
 var _dlvImage = "";         // base64 dataURL
 var _dlvApp   = "Grab";
 
-function openDeliveryModal() {
-    if (!S) { showToast("กรุณา login ก่อน", true); return; }
+// Inline rendering — embedded in sell page
+function renderDeliveryInline() {
+    var box = $("dlvInlineSection"); if (!box || !S) return;
     if (!S.delivery_sales) S.delivery_sales = [];
-    _dlvItems = {};
-    _dlvImage = "";
-    _dlvApp   = "Grab";
-
-    var modal = el("div", {cls:"modal-overlay", id:"dlvModal", css:"opacity:1;pointer-events:all;align-items:center;justify-content:center"});
-    var box   = el("div", {cls:"modal-box", css:"max-width:420px;max-height:90vh;overflow-y:auto"});
-
-    // Header
-    var hdr = el("div", {css:"display:flex;justify-content:space-between;align-items:center;padding:14px 18px;border-bottom:1px solid var(--cream2);position:sticky;top:0;background:#fff;z-index:2"});
-    hdr.appendChild(el("div", {txt:"🛵 บันทึก Delivery", css:"font-family:var(--fb);font-size:16px;color:var(--cocoa)"}));
-    var closeBtn = el("button", {txt:"×", css:"background:none;border:none;font-size:24px;color:var(--muted);cursor:pointer;line-height:1"});
-    closeBtn.onclick = closeDeliveryModal;
-    hdr.appendChild(closeBtn);
-    box.appendChild(hdr);
-
-    var body = el("div", {css:"padding:14px 18px"});
+    clr(box);
 
     // App selector
-    body.appendChild(el("div", {txt:"ผ่านแอป", css:"font-family:var(--fb);font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.1em;margin-bottom:6px"}));
-    var appRow = el("div", {css:"display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:16px"});
+    var appLbl = el("div", {txt:"ผ่านแอป", css:"font-family:var(--fb);font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.1em;margin:8px 0 6px"});
+    box.appendChild(appLbl);
+    var appRow = el("div", {css:"display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:12px"});
     DELIVERY_APPS.forEach(function(a) {
-        var btn = el("button", {cls:"dlv-app-btn", txt:a, css:"padding:10px 4px;border-radius:10px;border:1.5px solid var(--cream2);background:#fff;font-size:12px;color:var(--cocoa);font-family:var(--fb);cursor:pointer"});
+        var btn = el("button", {txt:a, css:"padding:9px 4px;border-radius:10px;border:1.5px solid var(--cream2);background:#fff;font-size:12px;color:var(--cocoa);font-family:var(--fb);cursor:pointer"});
         if (a === _dlvApp) { btn.style.background = "var(--mustard)"; btn.style.borderColor = "var(--mustard-deep)"; }
         btn.onclick = function() {
             _dlvApp = a;
@@ -1400,29 +1392,31 @@ function openDeliveryModal() {
         };
         appRow.appendChild(btn);
     });
-    body.appendChild(appRow);
+    box.appendChild(appRow);
 
-    // Amount inputs (Gross + Net)
-    body.appendChild(el("div", {txt:"ยอดเงิน (บาท)", css:"font-family:var(--fb);font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.1em;margin-bottom:6px"}));
-    var amtRow = el("div", {css:"display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:16px"});
-    var grossWrap = el("div");
-    grossWrap.appendChild(el("div", {txt:"Gross (ลูกค้าจ่าย)", css:"font-size:10px;color:var(--muted);margin-bottom:3px"}));
-    grossWrap.appendChild(el("input", {id:"dlvGross", type:"number", min:"0", value:"0", css:"width:100%;padding:10px;border:1.5px solid var(--cream2);border-radius:10px;font-family:var(--fn);font-size:16px;font-weight:700;text-align:center;color:var(--cocoa);box-sizing:border-box"}));
-    amtRow.appendChild(grossWrap);
-    var netWrap = el("div");
-    netWrap.appendChild(el("div", {txt:"Net (ที่ร้านได้)", css:"font-size:10px;color:var(--muted);margin-bottom:3px"}));
-    netWrap.appendChild(el("input", {id:"dlvNet", type:"number", min:"0", value:"0", css:"width:100%;padding:10px;border:1.5px solid var(--ok);border-radius:10px;font-family:var(--fn);font-size:16px;font-weight:700;text-align:center;color:var(--ok-fg);box-sizing:border-box"}));
-    amtRow.appendChild(netWrap);
-    body.appendChild(amtRow);
+    // Amount inputs
+    var amtLbl = el("div", {txt:"ยอดเงิน (บาท)", css:"font-family:var(--fb);font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.1em;margin-bottom:6px"});
+    box.appendChild(amtLbl);
+    var amtRow = el("div", {css:"display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px"});
+    var gW = el("div");
+    gW.appendChild(el("div", {txt:"Gross (ลูกค้าจ่าย)", css:"font-size:10px;color:var(--muted);margin-bottom:3px"}));
+    gW.appendChild(el("input", {id:"dlvGross", type:"number", min:"0", value:"0", css:"width:100%;padding:10px;border:1.5px solid var(--cream2);border-radius:10px;font-family:var(--fn);font-size:16px;font-weight:700;text-align:center;color:var(--cocoa);box-sizing:border-box"}));
+    amtRow.appendChild(gW);
+    var nW = el("div");
+    nW.appendChild(el("div", {txt:"Net (ที่ร้านได้)", css:"font-size:10px;color:var(--muted);margin-bottom:3px"}));
+    nW.appendChild(el("input", {id:"dlvNet", type:"number", min:"0", value:"0", css:"width:100%;padding:10px;border:1.5px solid var(--ok);border-radius:10px;font-family:var(--fn);font-size:16px;font-weight:700;text-align:center;color:var(--ok-fg);box-sizing:border-box"}));
+    amtRow.appendChild(nW);
+    box.appendChild(amtRow);
 
-    // Item picker (same as sell page — แต่กรอกจำนวนเอง)
-    body.appendChild(el("div", {txt:"รายการขาย (ระบุไส้และจำนวน)", css:"font-family:var(--fb);font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.1em;margin-bottom:6px"}));
-    var itemBox = el("div", {css:"background:var(--bg);border-radius:12px;padding:10px;margin-bottom:16px"});
+    // Item picker
+    var itLbl = el("div", {txt:"รายการขาย (ระบุไส้และจำนวน)", css:"font-family:var(--fb);font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.1em;margin-bottom:6px"});
+    box.appendChild(itLbl);
+    var itemBox = el("div", {css:"background:var(--bg);border-radius:12px;padding:8px 10px;margin-bottom:12px"});
     F.forEach(function(f) {
-        var row = el("div", {css:"display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:0.5px solid var(--cream2)"});
+        var row = el("div", {css:"display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:0.5px solid var(--cream2)"});
         row.appendChild(el("span", {txt:f.e, css:"font-size:16px"}));
         row.appendChild(el("span", {txt:f.n, css:"flex:1;font-size:12px;color:var(--cocoa)"}));
-        var inp = el("input", {id:"dlvi-"+f.id, type:"number", min:"0", value:"0", css:"width:60px;padding:6px;border:1px solid var(--cream2);border-radius:8px;font-family:var(--fn);font-weight:700;text-align:center;font-size:14px;color:var(--cocoa)"});
+        var inp = el("input", {id:"dlvi-"+f.id, type:"number", min:"0", value:String(_dlvItems[f.id]||0), css:"width:60px;padding:6px;border:1px solid var(--cream2);border-radius:8px;font-family:var(--fn);font-weight:700;text-align:center;font-size:14px;color:var(--cocoa)"});
         inp.onchange = function() {
             var v = parseInt(inp.value) || 0;
             if (v > 0) _dlvItems[f.id] = v;
@@ -1433,42 +1427,70 @@ function openDeliveryModal() {
         row.appendChild(el("span", {txt:"ชิ้น", css:"font-size:10px;color:var(--muted);width:24px"}));
         itemBox.appendChild(row);
     });
-    body.appendChild(itemBox);
+    box.appendChild(itemBox);
 
     // Summary
-    var sumBox = el("div", {id:"dlvSummary", css:"background:var(--cream);border-radius:10px;padding:10px 12px;margin-bottom:16px;font-size:12px;color:var(--cocoa);text-align:center"});
+    var sumBox = el("div", {id:"dlvSummary", css:"background:var(--cream);border-radius:10px;padding:8px 12px;margin-bottom:12px;font-size:12px;color:var(--cocoa);text-align:center"});
     sumBox.textContent = "รวม 0 ชิ้น";
-    body.appendChild(sumBox);
+    box.appendChild(sumBox);
 
-    // Image attach (optional)
-    body.appendChild(el("div", {txt:"แนบหลักฐาน (Optional)", css:"font-family:var(--fb);font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.1em;margin-bottom:6px"}));
-    var imgBox = el("div", {css:"position:relative;margin-bottom:16px"});
-    var imgPreview = el("div", {id:"dlvImgPreview", css:"width:100%;min-height:80px;border:2px dashed var(--cream2);border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:11px;color:var(--muted);overflow:hidden;background:var(--bg)"});
-    imgPreview.textContent = "📷 แตะเพื่อแนบ screenshot";
-    var fileInp = el("input", {type:"file", id:"dlvFile", accept:"image/*", css:"position:absolute;inset:0;opacity:0;cursor:pointer"});
-    fileInp.onchange = handleDlvImage;
-    imgBox.appendChild(imgPreview);
-    imgBox.appendChild(fileInp);
-    body.appendChild(imgBox);
+    // Image attach
+    var imLbl = el("div", {txt:"แนบหลักฐาน (Optional)", css:"font-family:var(--fb);font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.1em;margin-bottom:6px"});
+    box.appendChild(imLbl);
+    var imgBox = el("div", {css:"position:relative;margin-bottom:12px"});
+    var imgPrev = el("div", {id:"dlvImgPreview", css:"width:100%;min-height:70px;border:2px dashed var(--cream2);border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:11px;color:var(--muted);overflow:hidden;background:var(--bg)"});
+    imgPrev.textContent = "📷 แตะเพื่อแนบ screenshot";
+    var fInp = el("input", {type:"file", id:"dlvFile", accept:"image/*", css:"position:absolute;inset:0;opacity:0;cursor:pointer"});
+    fInp.onchange = handleDlvImage;
+    imgBox.appendChild(imgPrev);
+    imgBox.appendChild(fInp);
+    box.appendChild(imgBox);
 
     // Note
-    body.appendChild(el("div", {txt:"หมายเหตุ (Optional)", css:"font-family:var(--fb);font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.1em;margin-bottom:6px"}));
-    var noteInp = el("textarea", {id:"dlvNote", placeholder:"หมายเหตุเพิ่มเติม...", css:"width:100%;min-height:60px;padding:10px;border:1.5px solid var(--cream2);border-radius:10px;font-family:var(--ft);font-size:13px;color:var(--cocoa);box-sizing:border-box;resize:vertical;margin-bottom:18px"});
-    body.appendChild(noteInp);
+    var nLbl = el("div", {txt:"หมายเหตุ (Optional)", css:"font-family:var(--fb);font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.1em;margin-bottom:6px"});
+    box.appendChild(nLbl);
+    box.appendChild(el("textarea", {id:"dlvNote", placeholder:"หมายเหตุเพิ่มเติม...", css:"width:100%;min-height:50px;padding:10px;border:1.5px solid var(--cream2);border-radius:10px;font-family:var(--ft);font-size:13px;color:var(--cocoa);box-sizing:border-box;resize:vertical;margin-bottom:12px"}));
 
     // Save button
-    var saveBtn = el("button", {txt:"✓ บันทึก Delivery", css:"width:100%;padding:14px;background:var(--cocoa);color:#fff;border:none;border-radius:12px;font-family:var(--fb);font-size:15px;cursor:pointer"});
+    var saveBtn = el("button", {txt:"🛵 บันทึก Delivery", css:"width:100%;padding:13px;background:#1976D2;color:#fff;border:none;border-radius:12px;font-family:var(--fb);font-size:14px;cursor:pointer;margin-bottom:8px"});
     saveBtn.onclick = saveDelivery;
-    body.appendChild(saveBtn);
-
-    box.appendChild(body);
-    modal.appendChild(box);
-    document.body.appendChild(modal);
+    box.appendChild(saveBtn);
 }
 
-function closeDeliveryModal() {
-    var m = $("dlvModal");
-    if (m) m.remove();
+function renderDeliveryTodaySummary() {
+    var box = $("dlvTodaySummary"); if (!box || !S) return; clr(box);
+    if (!S.delivery_sales || !S.delivery_sales.length) return;
+    var totalNet = 0, totalGross = 0, totalPcs = 0, byApp = {};
+    S.delivery_sales.forEach(function(d) {
+        totalNet += (d.netAmount||0);
+        totalGross += (d.grossAmount||0);
+        totalPcs += (d.pieceCount||0);
+        byApp[d.app] = (byApp[d.app]||0) + 1;
+    });
+    var card = el("div", {css:"background:var(--card);border-radius:12px;padding:12px 14px;margin-top:8px;border:1px solid var(--cream2)"});
+    card.appendChild(el("div", {txt:"Delivery วันนี้", css:"font-family:var(--fb);font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.1em;margin-bottom:6px"}));
+    var stats = el("div", {css:"display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:8px"});
+    function nb(v, l) {
+        return el("div", {css:"text-align:center;background:var(--bg);border-radius:8px;padding:6px"}, [
+            el("div", {txt:v, css:"font-family:var(--fn);font-weight:700;font-size:14px;color:var(--cocoa)"}),
+            el("div", {txt:l, css:"font-size:9px;color:var(--muted);margin-top:1px"})
+        ]);
+    }
+    stats.appendChild(nb(S.delivery_sales.length + " ครั้ง", "ออเดอร์"));
+    stats.appendChild(nb(totalPcs + " ชิ้น", "รวมชิ้น"));
+    stats.appendChild(nb("฿" + totalNet.toLocaleString(), "Net รวม"));
+    card.appendChild(stats);
+    var apps = Object.keys(byApp).map(function(k){ return k+": "+byApp[k]; }).join(" · ");
+    card.appendChild(el("div", {txt:apps, css:"font-size:11px;color:var(--muted);text-align:center"}));
+    box.appendChild(card);
+}
+
+// Legacy modal shortcut — redirects to sell tab now
+function openDeliveryModal() {
+    go("sell");
+    setTimeout(function() {
+        var b = $("dlvInlineSection"); if (b) b.scrollIntoView({behavior:"smooth", block:"center"});
+    }, 200);
 }
 
 function updateDlvSummary() {
@@ -1480,7 +1502,6 @@ function updateDlvSummary() {
 
 function handleDlvImage(ev) {
     var file = ev.target.files && ev.target.files[0]; if (!file) return;
-    // Resize + compress to keep payload small (max 800px, 70% quality)
     var reader = new FileReader();
     reader.onload = function(e) {
         var img = new Image();
@@ -1513,16 +1534,14 @@ function saveDelivery() {
     var gross = parseInt(($("dlvGross")||{value:"0"}).value) || 0;
     var net   = parseInt(($("dlvNet")||{value:"0"}).value)   || 0;
     var note  = ($("dlvNote")||{value:""}).value.trim();
-    var totalPieces = 0;
-    var items = [];
+    var totalPieces = 0, items = [];
     F.forEach(function(f) {
-        var q = _dlvItems[f.id] || 0;
+        var q = parseInt(($("dlvi-"+f.id)||{value:"0"}).value) || 0;
         if (q > 0) { totalPieces += q; items.push({id:f.id, name:f.n, pieces:q}); }
     });
     if (gross <= 0 && net <= 0) { showToast("กรุณาใส่ยอด Gross หรือ Net", true); return; }
     if (!items.length) { showToast("กรุณาระบุไส้และจำนวน", true); return; }
 
-    // Validate stock — same as sell
     var err = null;
     items.forEach(function(it) {
         var avail = S.stock[it.id].fry_out - S.stock[it.id].sold;
@@ -1530,7 +1549,6 @@ function saveDelivery() {
     });
     if (err) { showToast("❌ " + err, true); return; }
 
-    // Update stock — treat as sold
     items.forEach(function(it) { S.stock[it.id].sold += it.pieces; });
 
     var ts = new Date().toLocaleString("th-TH", {timeZone:"Asia/Bangkok"});
@@ -1543,7 +1561,6 @@ function saveDelivery() {
     S.delivery_sales.push(record);
     save();
 
-    // Telegram notification (no image in TG — too big; just text)
     var itemList = items.map(function(i) { return "  • " + i.name + " × " + i.pieces + " ชิ้น"; }).join("\n");
     var msg = "🛵 ยอดขาย Delivery\n━━━━━━━━━━━━━━━\n" +
               "📍 สาขา: " + currentBranch + "\n" +
@@ -1568,7 +1585,9 @@ function saveDelivery() {
         })
     }).catch(function(){});
 
-    closeDeliveryModal();
+    // Reset form
+    _dlvItems = {}; _dlvImage = ""; _dlvApp = "Grab";
+    renderDeliveryInline(); renderDeliveryTodaySummary();
     renderSell(); renderStockTop3(); renderStackChart();
     showToast("✅ บันทึก Delivery " + totalPieces + " ชิ้น");
 }
@@ -2505,8 +2524,19 @@ function doExport(type, data, dateStr) {
         var ca2=parseInt(($("cashAmount")||{value:"0"}).value)||0;
         var tr2=parseInt(($("transferAmount")||{value:"0"}).value)||0;
         var tw2=0;(data.withdrawals||[]).forEach(function(w){tw2+=w.amount||0;});
+        var giftTot=0;(data.gift_sales||[]).forEach(function(g){giftTot+=(g.grandTotal||0);});
+        var dlvNet=0,dlvGross=0;(data.delivery_sales||[]).forEach(function(d){dlvNet+=(d.netAmount||0);dlvGross+=(d.grossAmount||0);});
+        var expectedTotal=tm+giftTot+dlvNet;
+        var receivedTotal=ca2-cf2-tw2+tr2+dlvNet;
         crows.push([]);crows.push(["── บัญชีเงิน ──"]);
-        [["เงินทอนที่เตรียมไว้",cf2],["เงินสดจริง",ca2],["หัก เงินทอน",-cf2],["หัก ยอดจ่ายออก",-tw2],["เงินสดสุทธิ",ca2-cf2-tw2],["โอน/QR",tr2],["รวมรับจริง",ca2-cf2-tw2+tr2],["ยอดที่คาดได้",tm],["ผลต่าง",ca2-cf2-tw2+tr2-tm]].forEach(function(r){crows.push([r[0],"","","","","","",r[1]]);});
+        var moneyRows=[["เงินทอนที่เตรียมไว้",cf2],["เงินสดจริง",ca2],["หัก เงินทอน",-cf2],["หัก ยอดจ่ายออก",-tw2],["เงินสดสุทธิ",ca2-cf2-tw2],["โอน/QR",tr2]];
+        if(giftTot>0) moneyRows.push(["+ ยอดของฝาก",giftTot]);
+        if(dlvNet>0)  moneyRows.push(["+ Delivery (Net)",dlvNet]);
+        if(dlvGross>0) moneyRows.push(["  (Delivery Gross รวม)",dlvGross]);
+        moneyRows.push(["รวมรับจริง",receivedTotal]);
+        moneyRows.push(["ยอดที่คาดได้ (พัฟ+ของฝาก+Delivery)",expectedTotal]);
+        moneyRows.push(["ผลต่าง",receivedTotal-expectedTotal]);
+        moneyRows.forEach(function(r){crows.push([r[0],"","","","","","",r[1]]);});
         var ws3=XLSX.utils.aoa_to_sheet(hRows.concat(crows));
         ws3["!cols"]=[{wch:20},{wch:26},{wch:12},{wch:12},{wch:10},{wch:10},{wch:14},{wch:10},{wch:14}];
         XLSX.utils.book_append_sheet(wb,ws3,"ปิดวัน");
@@ -2526,6 +2556,30 @@ function doExport(type, data, dateStr) {
         var wsG=XLSX.utils.aoa_to_sheet(hRows.concat(grows));
         wsG["!cols"]=[{wch:22},{wch:20},{wch:26},{wch:10},{wch:10},{wch:14},{wch:18},{wch:14}];
         XLSX.utils.book_append_sheet(wb,wsG,"ของฝาก");
+    }
+    if((type==="sales"||type==="all"||type==="close")&&data.delivery_sales&&data.delivery_sales.length){
+        var drows=[["วันเวลา","สาขา","แอป","รหัสสินค้า","ไส้","จำนวน(ชิ้น)","Gross","Net","มีภาพแนบ","หมายเหตุ","ผู้บันทึก"]];
+        var dTotG=0,dTotN=0,dTotP=0;
+        data.delivery_sales.forEach(function(dl){
+            (dl.items||[]).forEach(function(it,i){
+                var f3=F.find(function(x){return x.id===it.id;});
+                drows.push([
+                    i===0?dl.ts:"", i===0?data.branch:"", i===0?dl.app:"",
+                    f3?f3.code:"", it.name, it.pieces,
+                    i===0?dl.grossAmount:"", i===0?dl.netAmount:"",
+                    i===0?(dl.hasImage?"✓":""):"",
+                    i===0?(dl.note||""):"",
+                    i===0&&data.lastStaff?data.lastStaff.name:""
+                ]);
+            });
+            drows.push(["","","","","รวม order นี้","",(dl.pieceCount||0)+" ชิ้น",dl.netAmount,"","",""]);
+            dTotG+=(dl.grossAmount||0); dTotN+=(dl.netAmount||0); dTotP+=(dl.pieceCount||0);
+        });
+        drows.push([]);
+        drows.push(["","","","","รวมทั้งวัน",dTotP,dTotG,dTotN,"","",""]);
+        var wsD=XLSX.utils.aoa_to_sheet(hRows.concat(drows));
+        wsD["!cols"]=[{wch:22},{wch:20},{wch:12},{wch:10},{wch:22},{wch:12},{wch:12},{wch:12},{wch:10},{wch:24},{wch:18}];
+        XLSX.utils.book_append_sheet(wb,wsD,"Delivery");
     }
     var safeDate=(dateStr||todayISO()).replace(/\//g,"-");
     var safeLoc=info.locName.replace(/[^a-zA-Z0-9ก-๙]/g,"_");
