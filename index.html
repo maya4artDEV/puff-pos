@@ -8,8 +8,8 @@
 <meta http-equiv="Expires" content="0">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
-<meta name="build-version" content="20260529.1544">
-<title>Puff Stick POS v10 · 20260529.1544</title>
+<meta name="build-version" content="20260703.0919">
+<title>Puff Stick POS v10 · 20260703.0919</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@700;800;900&family=Prompt:wght@400;500;600;700;800&display=swap" rel="stylesheet">
@@ -612,7 +612,7 @@ input:focus-visible,select:focus-visible,textarea:focus-visible{outline:none}
     </div>
     <div id="headerClock"></div>
     <div id="syncIcon" style="font-size:11px;color:#6B9E4B;padding:0 0 4px;cursor:default;font-family:var(--fn)" title="ซิงค์แล้ว">☁✓</div>
-    <div id="buildVer" style="font-family:var(--f);font-size:9px;color:var(--muted);padding:0 0 6px;opacity:.6">build 20260529.1544</div>
+    <div id="buildVer" style="font-family:var(--f);font-size:9px;color:var(--muted);padding:0 0 6px;opacity:.6">build 20260703.0919</div>
   </div>
 
   <!-- PAGES (role=main wraps all tab pages) -->
@@ -769,6 +769,7 @@ input:focus-visible,select:focus-visible,textarea:focus-visible{outline:none}
       </div>
     </div>
     <div id="closeResult"></div>
+    <div id="closeDayStatus"></div>
     <div class="divider"></div>
     <span class="sec-lbl">📊 Export รายงาน</span>
     <div class="export-grid">
@@ -969,26 +970,43 @@ function newState(branch) {
 function getPrevDayState(branch) {
     var prefix = "puff7_" + safeBranch(branch) + "_";
     var today  = todayISO();
-    var keys   = [];
+    function dateNum(ds) {
+        var p = ds.split("/");
+        if (p.length !== 3) return -1;
+        return (parseInt(p[2],10)||0)*10000 + (parseInt(p[1],10)||0)*100 + (parseInt(p[0],10)||0);
+    }
+    var todayNum = dateNum(today);
+    // Pass 1: find latest state where is_closed === true (preferred)
+    // Pass 2: if no closed state exists, fall back to latest state (backward compat)
+    var closedKey = null, closedNum = -1;
+    var latestKey = null, latestNum = -1;
     for (var i = 0; i < localStorage.length; i++) {
         var k = localStorage.key(i);
-        if (k && k.startsWith(prefix) && k !== prefix + today) keys.push(k);
+        if (!k || k.indexOf(prefix) !== 0) continue;
+        var n = dateNum(k.slice(prefix.length));
+        if (n < 0 || n >= todayNum) continue;
+        // Track latest overall
+        if (n > latestNum) { latestNum = n; latestKey = k; }
+        // Track latest CLOSED
+        try {
+            var st = JSON.parse(localStorage.getItem(k));
+            if (st && st.is_closed === true && n > closedNum) {
+                closedNum = n; closedKey = k;
+            }
+        } catch(e) {}
     }
-    if (!keys.length) return null;
-    keys.sort().reverse();
-    try { return JSON.parse(localStorage.getItem(keys[0])); } catch(e) { return null; }
+    var chosenKey = closedKey || latestKey;
+    if (!chosenKey) return null;
+    try { return JSON.parse(localStorage.getItem(chosenKey)); } catch(e) { return null; }
 }
 function newStateWithCarryOver(branch) {
     var state = newState(branch);
     var prev  = getPrevDayState(branch);
     if (!prev) return state;
+    // Use single source of truth: getStockForState (handles 0 values correctly + packs fallback)
     F.forEach(function(f) {
-        var ps = prev.stock && prev.stock[f.id];
-        if (ps) {
-            var recv   = ps.received_pieces || (ps.received_packs||0)*10;
-            var frozen = Math.max(0, recv - (ps.fry_out||0));
-            state.stock[f.id].received_pieces = frozen;
-        }
+        var frozen = getStockForState(prev, f.id);
+        state.stock[f.id].received_pieces = frozen;
     });
     if (prev.pricePerPiece) state.pricePerPiece = prev.pricePerPiece;
     if (prev.gift_catalog && prev.gift_catalog.length) {
@@ -1045,10 +1063,7 @@ function setBranch(branch) {
 
 // ── Stock helpers (single source of truth) ──
 function getFrozen(fid) {
-    if (!S || !S.stock || !S.stock[fid]) return 0;
-    var st = S.stock[fid];
-    var recv = st.received_pieces || (st.received_packs||0)*10;
-    return Math.max(0, recv - (st.fry_out||0));
+    return getStockForState(S, fid);
 }
 function getReady(fid) {
     if (!S || !S.stock || !S.stock[fid]) return 0;
@@ -1057,8 +1072,14 @@ function getReady(fid) {
 function getStockForState(state, fid) {
     if (!state || !state.stock || !state.stock[fid]) return 0;
     var st = state.stock[fid];
-    var recv = st.received_pieces || (st.received_packs||0)*10;
-    return Math.max(0, recv - (st.fry_out||0));
+    // Explicit check: 0 is a valid received_pieces value, not a signal to fallback
+    var recv;
+    if (st.received_pieces !== undefined && st.received_pieces !== null) {
+        recv = st.received_pieces;
+    } else {
+        recv = (st.received_packs || 0) * 10;
+    }
+    return Math.max(0, recv - (st.fry_out || 0));
 }
 
 // ── Staff (reads from login session) ──
@@ -1229,7 +1250,7 @@ function go(tab) {
     if (tab === "sell")  { renderStaffChip(); renderPriceBanner(); renderSell(); renderDeliveryInline(); renderDeliveryTodaySummary(); renderGiftSell(); updBar(); }
     if (tab === "fry")   { renderFryHero(); renderFryChart(); renderFryPage(); }
     if (tab === "stock") { renderStockTop3(); renderStackChart(); renderStockPage(); }
-    if (tab === "close") { renderClose(); }
+    if (tab === "close") { renderClose(); renderCloseDayStatus(); }
     if (tab === "hist")  { renderHist(); }
     if (tab === "hq")    { renderHQTab(); }
 }
@@ -2319,6 +2340,52 @@ function calcClose() {
 // ═══════════════════════════════════
 //  HISTORY PAGE
 // ═══════════════════════════════════
+function renderCloseDayStatus() {
+    var box = $("closeDayStatus"); if (!box || !S) return; clr(box);
+    var wrap = el("div", {css:"margin-top:12px"});
+    if (S.is_closed) {
+        var closedAt = S.closedAt ? new Date(S.closedAt).toLocaleString("th-TH", {timeZone:"Asia/Bangkok"}) : "";
+        var card = el("div", {css:"background:#DCFCE7;border:1.5px solid #16A34A;border-radius:14px;padding:14px 16px;display:flex;align-items:center;gap:12px"});
+        card.appendChild(el("div", {txt:"✓", css:"font-size:24px;color:#16A34A;font-weight:900"}));
+        var info = el("div", {css:"flex:1"});
+        info.appendChild(el("div", {txt:"ปิดวันแล้ว", css:"font-family:var(--fb);font-size:14px;color:#166534;font-weight:800"}));
+        info.appendChild(el("div", {txt:"เมื่อ " + closedAt, css:"font-size:11px;color:#166534;margin-top:2px"}));
+        card.appendChild(info);
+        wrap.appendChild(card);
+    } else {
+        var btn = el("button", {
+            txt:"✓ ยืนยันปิดวัน",
+            css:"width:100%;padding:16px;background:#5C3B22;color:#fff;border:none;border-radius:14px;font-family:var(--fb);font-size:15px;font-weight:800;cursor:pointer;box-shadow:0 4px 12px rgba(92,59,34,.25)"
+        });
+        btn.onclick = confirmCloseDay;
+        wrap.appendChild(btn);
+        wrap.appendChild(el("div", {
+            txt:"กดเมื่อทำรายการสิ้นวันครบและตรวจยอดเรียบร้อยแล้ว",
+            css:"font-size:11px;color:var(--muted);text-align:center;margin-top:6px"
+        }));
+    }
+    box.appendChild(wrap);
+}
+
+function confirmCloseDay() {
+    if (!S) return;
+    if (S.is_closed) { showToast("วันนี้ปิดไปแล้ว", true); return; }
+    // Validate: must have entered cash/transfer amounts
+    var ca = parseInt(($("cashAmount")||{value:"0"}).value) || 0;
+    var tr = parseInt(($("transferAmount")||{value:"0"}).value) || 0;
+    var dlv = 0; (S.delivery_sales||[]).forEach(function(d){ dlv += (d.netAmount||0); });
+    if (ca <= 0 && tr <= 0 && dlv <= 0) {
+        showToast("กรุณาใส่ยอดเงินก่อนปิดวัน", true);
+        return;
+    }
+    if (!confirm("ยืนยันปิดวันนี้?\n\nหลังยืนยันจะไม่สามารถแก้ไขข้อมูลของวันนี้ได้อีก\nและระบบจะใช้ข้อมูลนี้เป็นฐานของวันถัดไป")) return;
+    S.is_closed = true;
+    S.closedAt = Date.now();
+    save();
+    renderCloseDayStatus();
+    showToast("✓ ปิดวันเรียบร้อย");
+}
+
 function renderHist() {
     var weekBox=$("histWeekCard"); if(weekBox)clr(weekBox);
     var barCard=$("histBarCard"); if(barCard)clr(barCard);
@@ -2833,39 +2900,32 @@ function flushSyncQueue() {
 
 function prefetchCloudState(branch, callback) {
     if (!navigator.onLine) { callback(); return; }
-    // Timeout safety: never block login more than 4 seconds
+    // Timeout safety: never block login more than 6 seconds
     var called = false;
     var timer = setTimeout(function() {
         if (!called) { called = true; callback(); }
-    }, 4000);
-    var today = todayISO();
-    var yesterday = prevDayISO();
+    }, 6000);
+    function finish() {
+        if (!called) { called = true; clearTimeout(timer); callback(); }
+    }
     var baseUrl = getSyncURL(branch);
-    var fetched = 0;
-    function done() {
-        fetched++;
-        if (fetched >= 2 && !called) {
-            called = true;
-            clearTimeout(timer);
-            callback();
-        }
-    }
-    function tryFetch(date) {
-        fetch(baseUrl + "?type=state_get&branch=" + encodeURIComponent(branch) + "&date=" + encodeURIComponent(date))
-        .then(function(r) { return r.json(); })
-        .then(function(data) {
-            if (data.ok && data.state) {
-                var key = "puff7_" + safeBranch(branch) + "_" + date;
-                var localRaw = localStorage.getItem(key);
-                var localTs  = localRaw ? (JSON.parse(localRaw).lastSaved || 0) : 0;
-                var cloudTs  = data.state.lastSaved || 0;
-                if (cloudTs > localTs) localStorage.setItem(key, JSON.stringify(data.state));
+    // state_latest: returns the most recent state of this branch on cloud,
+    // regardless of how many days ago it was saved (fixes multi-device gap bug)
+    fetch(baseUrl + "?type=state_latest&branch=" + encodeURIComponent(branch))
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+        if (data.ok && data.state && data.date) {
+            var key = "puff7_" + safeBranch(branch) + "_" + data.date;
+            var localRaw = localStorage.getItem(key);
+            var localTs = 0;
+            if (localRaw) { try { localTs = JSON.parse(localRaw).lastSaved || 0; } catch(e) {} }
+            var cloudTs = data.state.lastSaved || 0;
+            if (!localRaw || cloudTs > localTs) {
+                localStorage.setItem(key, JSON.stringify(data.state));
             }
-            done();
-        }).catch(done);
-    }
-    tryFetch(today);
-    tryFetch(yesterday);
+        }
+        finish();
+    }).catch(finish);
 }
 
 function updateSyncIcon() {
