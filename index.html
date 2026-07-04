@@ -8,8 +8,8 @@
 <meta http-equiv="Expires" content="0">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
-<meta name="build-version" content="20260704.0443">
-<title>Puff Stick POS v11 · 20260704.0443</title>
+<meta name="build-version" content="20260704.1440">
+<title>Puff Stick POS v12 · 20260704.1440</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@700;800;900&family=Prompt:wght@400;500;600;700;800&display=swap" rel="stylesheet">
@@ -612,7 +612,7 @@ input:focus-visible,select:focus-visible,textarea:focus-visible{outline:none}
     </div>
     <div id="headerClock"></div>
     <div id="syncIcon" style="font-size:11px;color:#6B9E4B;padding:0 0 4px;cursor:default;font-family:var(--fn)" title="ซิงค์แล้ว">☁✓</div>
-    <div id="buildVer" style="font-family:var(--f);font-size:9px;color:var(--muted);padding:0 0 6px;opacity:.6">build 20260704.0443</div>
+    <div id="buildVer" style="font-family:var(--f);font-size:9px;color:var(--muted);padding:0 0 6px;opacity:.6">build 20260704.1440</div>
   </div>
 
   <!-- PAGES (role=main wraps all tab pages) -->
@@ -953,8 +953,20 @@ function safeBranch(b) {
 function todayISO() {
     return new Date().toLocaleDateString("th-TH", {timeZone:"Asia/Bangkok",year:"numeric",month:"2-digit",day:"2-digit"});
 }
+// Canonical date format: dd/mm/yyyy zero-padded — single source of truth for all keys.
+// Google Sheets strips leading zeros from date strings, so every date from any source
+// MUST pass through this before being used as a localStorage key.
+function normDateStr(ds) {
+    var p = String(ds || "").split("/");
+    if (p.length !== 3) return String(ds || "");
+    var d = parseInt(p[0], 10) || 0;
+    var m = parseInt(p[1], 10) || 0;
+    var y = parseInt(p[2], 10) || 0;
+    return (d < 10 ? "0" : "") + d + "/" + (m < 10 ? "0" : "") + m + "/" + y;
+}
+
 function stateKey(branch, dateStr) {
-    return "puff7_" + safeBranch(branch) + "_" + (dateStr || todayISO());
+    return "puff7_" + safeBranch(branch) + "_" + normDateStr(dateStr || todayISO());
 }
 function newState(branch) {
     var st = {};
@@ -2910,6 +2922,7 @@ function getSyncURL(branch) {
 
 function queueCloudSync(branch, date, state) {
     if (isEmptyState(state)) return;   // never push blank states — protects cloud data from read-only opens
+    date = normDateStr(date);
     try {
         var queue = JSON.parse(localStorage.getItem("puff10_syncQueue") || "[]");
         queue = queue.filter(function(q) { return !(q.branch === branch && q.date === date); });
@@ -2942,6 +2955,35 @@ function flushSyncQueue() {
     }).catch(function() { updateSyncIcon(); });
 }
 
+// Consolidate any non-canonical date keys (e.g. "4/7/2569" from cloud) into
+// canonical form; when both exist, the richer state wins.
+function migrateBranchKeys(branch) {
+    var prefix = "puff7_" + safeBranch(branch) + "_";
+    var moves = [];
+    for (var i = 0; i < localStorage.length; i++) {
+        var k = localStorage.key(i);
+        if (!k || k.indexOf(prefix) !== 0) continue;
+        var ds = k.slice(prefix.length);
+        var nd = normDateStr(ds);
+        if (nd !== ds) moves.push({from: k, to: prefix + nd});
+    }
+    moves.forEach(function(mv) {
+        try {
+            var src = JSON.parse(localStorage.getItem(mv.from));
+            var dstRaw = localStorage.getItem(mv.to);
+            if (!dstRaw) {
+                localStorage.setItem(mv.to, JSON.stringify(src));
+            } else {
+                var dst = JSON.parse(dstRaw);
+                if (activityScore(src) > activityScore(dst)) {
+                    localStorage.setItem(mv.to, JSON.stringify(src));
+                }
+            }
+            localStorage.removeItem(mv.from);
+        } catch(e) {}
+    });
+}
+
 function prefetchCloudState(branch, callback) {
     if (!navigator.onLine) { callback(); return; }
     // Timeout safety: never block login more than 6 seconds
@@ -2953,13 +2995,14 @@ function prefetchCloudState(branch, callback) {
         if (!called) { called = true; clearTimeout(timer); callback(); }
     }
     var baseUrl = getSyncURL(branch);
+    migrateBranchKeys(branch);
     // state_latest: returns the most recent state of this branch on cloud,
     // regardless of how many days ago it was saved (fixes multi-device gap bug)
     fetch(baseUrl + "?type=state_latest&branch=" + encodeURIComponent(branch))
     .then(function(r) { return r.json(); })
     .then(function(data) {
         if (data.ok && data.state && data.date) {
-            var key = "puff7_" + safeBranch(branch) + "_" + data.date;
+            var key = "puff7_" + safeBranch(branch) + "_" + normDateStr(data.date);
             var localRaw = localStorage.getItem(key);
             var doReplace = false;
             if (!localRaw) {
