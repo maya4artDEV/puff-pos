@@ -8,8 +8,8 @@
 <meta http-equiv="Expires" content="0">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
-<meta name="build-version" content="20260704.0436">
-<title>Puff Stick POS v10 · 20260704.0436</title>
+<meta name="build-version" content="20260704.0443">
+<title>Puff Stick POS v11 · 20260704.0443</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@700;800;900&family=Prompt:wght@400;500;600;700;800&display=swap" rel="stylesheet">
@@ -612,7 +612,7 @@ input:focus-visible,select:focus-visible,textarea:focus-visible{outline:none}
     </div>
     <div id="headerClock"></div>
     <div id="syncIcon" style="font-size:11px;color:#6B9E4B;padding:0 0 4px;cursor:default;font-family:var(--fn)" title="ซิงค์แล้ว">☁✓</div>
-    <div id="buildVer" style="font-family:var(--f);font-size:9px;color:var(--muted);padding:0 0 6px;opacity:.6">build 20260704.0436</div>
+    <div id="buildVer" style="font-family:var(--f);font-size:9px;color:var(--muted);padding:0 0 6px;opacity:.6">build 20260704.0443</div>
   </div>
 
   <!-- PAGES (role=main wraps all tab pages) -->
@@ -1019,6 +1019,24 @@ function newStateWithCarryOver(branch) {
     }
     return state;
 }
+function activityScore(state) {
+    if (!state) return -1;
+    var s = 0;
+    s += (state.sales||[]).length * 10;
+    s += (state.fry_log||[]).length * 10;
+    s += (state.stock_log||[]).length * 10;
+    s += (state.gift_sales||[]).length * 10;
+    s += (state.delivery_sales||[]).length * 10;
+    s += (state.withdrawals||[]).length * 5;
+    if (state.stock) {
+        Object.keys(state.stock).forEach(function(k) {
+            var st = state.stock[k];
+            s += (st.received_pieces||0) + (st.fry_out||0) + (st.sold||0);
+        });
+    }
+    return s;
+}
+
 function isEmptyState(state) {
     if (!state) return true;
     if (state.sales && state.sales.length) return false;
@@ -2943,10 +2961,20 @@ function prefetchCloudState(branch, callback) {
         if (data.ok && data.state && data.date) {
             var key = "puff7_" + safeBranch(branch) + "_" + data.date;
             var localRaw = localStorage.getItem(key);
-            var localTs = 0;
-            if (localRaw) { try { localTs = JSON.parse(localRaw).lastSaved || 0; } catch(e) {} }
-            var cloudTs = data.state.lastSaved || 0;
-            if (!localRaw || cloudTs > localTs) {
+            var doReplace = false;
+            if (!localRaw) {
+                doReplace = true;
+            } else {
+                var localSt = null;
+                try { localSt = JSON.parse(localRaw); } catch(e) {}
+                var cScore = activityScore(data.state);
+                var lScore = activityScore(localSt);
+                var cTs = data.state.lastSaved || 0;
+                var lTs = (localSt && localSt.lastSaved) || 0;
+                // Richer state wins; timestamp only breaks ties
+                if (cScore > lScore || (cScore === lScore && cTs > lTs)) doReplace = true;
+            }
+            if (doReplace) {
                 localStorage.setItem(key, JSON.stringify(data.state));
             }
         }
@@ -2972,6 +3000,27 @@ function updateSyncIcon() {
 
 window.addEventListener("online",  function() { flushSyncQueue(); updateSyncIcon(); });
 window.addEventListener("offline", function() { updateSyncIcon(); });
+
+// ── Cloud refresh on app re-open (not just login) ──
+var _lastCloudRefresh = 0;
+function refreshFromCloud() {
+    if (!currentBranch || !navigator.onLine) return;
+    var now = Date.now();
+    if (now - _lastCloudRefresh < 60000) return;   // throttle: 1/min
+    _lastCloudRefresh = now;
+    prefetchCloudState(currentBranch, function() {
+        if (!currentBranch) return;
+        S = loadBranch(currentBranch);
+        if (currentTab === "home") { renderHome(); }
+        else if (currentTab === "sell") { renderSell(); renderDeliveryInline(); renderDeliveryTodaySummary(); renderGiftSell(); updBar(); }
+        else if (currentTab === "stock") { renderStockTop3(); renderStackChart(); renderStockPage(); }
+        updateSyncIcon();
+    });
+}
+window.addEventListener("pageshow", function() { refreshFromCloud(); });
+document.addEventListener("visibilitychange", function() {
+    if (document.visibilityState === "visible") refreshFromCloud();
+});
 
 // ═══════════════════════════════════════════════════
 //  HQ TAB — DASHBOARD + PIN AUTH
