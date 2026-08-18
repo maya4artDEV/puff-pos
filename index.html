@@ -1658,6 +1658,7 @@ function handleDlvImage(ev) {
 }
 
 function saveDelivery() {
+    if (getDeviceMode() === "viewer") return;
     if (!S) return;
     var gross = parseInt(($("dlvGross")||{value:"0"}).value) || 0;
     var net   = parseInt(($("dlvNet")||{value:"0"}).value)   || 0;
@@ -1941,6 +1942,7 @@ function getStockTotal() {
 
 // submitSell — identical to v9
 function submitSell() {
+    if (getDeviceMode() === "viewer") return;
     if (!S) return;
     var price = getPrice(); var staff = getStaff();
     var items = [];
@@ -2083,6 +2085,7 @@ function updateFrySaveRow() {
 }
 
 function saveFry() {
+    if (getDeviceMode() === "viewer") return;
     if (!S) return;
     var items = [];
     F.forEach(function(f) {
@@ -2881,6 +2884,7 @@ function updGiftBar(){
     }else{if(res)res.style.display="none";if(btn)btn.style.display="none";}
 }
 function submitGiftSale(){
+    if (getDeviceMode() === "viewer") return;
     if(!S||!currentBranch)return;
     var staff=getStaff();if(!staff.name){showToast("กรุณา login ก่อน",true);return;}
     var items=[];S.gift_catalog.forEach(function(g){var qty=gq[g.id]||0;if(qty>0)items.push({id:g.id,name:g.name,qty:qty,price:g.price,total:qty*g.price});});
