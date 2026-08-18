@@ -8,6 +8,10 @@
 
 ## 2026-08-18
 
+**Task 3 (read-path merge removal) — grep confirms.** หลังลบ merge block ใน `prefetchCloudState`, grep ยืนยันว่า `doReplace`/`cScore`/`lScore` = 0 hits, `activityScore` เหลือแค่ใน `migrateBranchKeys`. ตัวบั๊กสำคัญที่แก้มา 5 รอบไม่หาย ตอนนี้ต้นตอฝั่ง client ถูกตัดออกแล้ว รอ Task 5 ปิดฝั่ง server. Playwright test ที่ agent เขียนมี flaw (re-implement spec แทนที่จะเรียก function จริง) — grep audit จับได้แทน.
+- Lesson: static grep audit หลัง surgical edit สำคัญไม่แพ้ automated test
+- → keep as history (ยังไม่ graduate เพราะบทเรียนเฉพาะ merge fix)
+
 **`el()` + `onclick: function(){}` = ปุ่มตายเงียบ.** `el()` ไม่มี case สำหรับ `onclick` → function value ตกไป `setAttribute("onclick", fn)` → stringify หลุด closure → ปุ่ม throw ตอนคลิก (`opt is not defined`) โดยไม่มี error โชว์ในหน้าจอ
 - Fix: `data-*` attribute + delegated `addEventListener` บน container
 - → graduated → `.agents/rules/code-conventions.md` (event handlers via `el()`)
