@@ -1,0 +1,149 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-08-19T00:00:00.000Z",
+  "title": "Design System: Puff Stick POS",
+  "extensions": {
+    "colorMeta": {
+      "mustard": {
+        "role": "primary",
+        "displayName": "Golden Hour Mustard",
+        "canonical": "#F2B33D",
+        "tonalRamp": ["#3D2D0F", "#6D511B", "#9D7428", "#CE9834", "#F2B33D", "#F5C66E", "#F8D99E", "#FBECCF"]
+      },
+      "cocoa": {
+        "role": "secondary",
+        "displayName": "Dark Cocoa",
+        "canonical": "#5C3B22",
+        "tonalRamp": ["#25180E", "#402918", "#5C3B22", "#856C59", "#AE9D91", "#CEC4BD", "#E7E2DF", "#F5F3F2"]
+      },
+      "olive": {
+        "role": "tertiary",
+        "displayName": "Fry-Basket Olive",
+        "canonical": "#94A24F",
+        "tonalRamp": ["#1D2010", "#3B4120", "#687137", "#94A24F", "#AFB97B", "#CAD1A7", "#DFE3CA", "#F0F1E5"]
+      },
+      "bg": {
+        "role": "neutral",
+        "displayName": "Warm Parchment",
+        "canonical": "#EFEAE2",
+        "tonalRamp": ["#302F2D", "#605E5A", "#8F8C88", "#BFBBB5", "#EFEAE2", "#F4F0EB", "#F9F5F3", "#FDFCFB"]
+      }
+    },
+    "typographyMeta": {
+      "display": { "displayName": "Display", "purpose": "Hero numerals only — the daily sales total, timer countdown, close-day totals. Nunito 900, tabular where the value ticks." },
+      "headline": { "displayName": "Headline", "purpose": "Card and section titles." },
+      "title": { "displayName": "Title", "purpose": "Primary Thai-text weight — item names, staff names, day labels, button labels." },
+      "body": { "displayName": "Body", "purpose": "Secondary Thai copy — detail rows, sub-labels, tips." },
+      "label": { "displayName": "Label", "purpose": "Uppercase eyebrow labels above hero numbers and section headers." }
+    },
+    "shadows": [
+      { "name": "ambient", "value": "0 1px 2px rgba(60,40,20,.04), 0 8px 22px rgba(60,40,20,.07)", "purpose": "Default lift for every card, chip, and floating control. Never varies by importance." },
+      { "name": "mustard-glow", "value": "0 4px 12px rgba(242,179,61,.35)", "purpose": "Primary CTA buttons and mustard-fill surfaces." },
+      { "name": "hero-glow-sales", "value": "0 8px 28px rgba(230,154,31,.32)", "purpose": "Sales hero card on the home page." },
+      { "name": "action-bar", "value": "0 -4px 18px rgba(40,25,10,.28)", "purpose": "Fixed dark action bar on the sell page, shadow cast upward." }
+    ],
+    "motion": [
+      { "name": "press-scale", "value": "transform: scale(0.96); transition: all .12s", "purpose": "Universal :active feedback on every tappable control." },
+      { "name": "ease-standard", "value": "cubic-bezier(0.25, 0, 0.1, 1)", "purpose": "Nav icon float and bar-chart height transitions." }
+    ],
+    "breakpoints": [
+      { "name": "hover-capable", "value": "(hover: hover)", "purpose": "Gates all hover-only styles; the app is touch-first and has no width-based breakpoints of its own." }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "The single primary action on a screen — mustard fill, cocoa text, glow shadow.",
+      "html": "<button class=\"ds-btn-primary\">บันทึกรายการ</button>",
+      "css": ".ds-btn-primary{display:block;width:100%;border:none;border-radius:14px;padding:13px;font-family:'Prompt',-apple-system,BlinkMacSystemFont,'Noto Sans Thai',sans-serif;font-size:14px;font-weight:800;cursor:pointer;text-align:center;background:#F2B33D;color:#5C3B22;box-shadow:0 4px 12px rgba(242,179,61,.35);transition:all .12s} .ds-btn-primary:hover{filter:brightness(.94)} .ds-btn-primary:focus-visible{outline:2px solid #E69A1F;outline-offset:2px} .ds-btn-primary:active{transform:scale(.97)}"
+    },
+    {
+      "name": "Outline Button",
+      "kind": "button",
+      "refersTo": "button-outline",
+      "description": "The lesser action beside a primary button.",
+      "html": "<button class=\"ds-btn-outline\">ยกเลิก</button>",
+      "css": ".ds-btn-outline{display:block;width:100%;border:1.5px solid #E6DCCB;border-radius:14px;padding:11px;font-family:'Prompt',-apple-system,BlinkMacSystemFont,sans-serif;font-size:13px;font-weight:700;cursor:pointer;text-align:center;background:#FFFFFF;color:#7A6B58;transition:all .12s} .ds-btn-outline:hover{border-color:#5C3B22;color:#2A1F14;background:#EFEAE2} .ds-btn-outline:focus-visible{outline:2px solid #E69A1F;outline-offset:2px} .ds-btn-outline:active{transform:scale(.97)}"
+    },
+    {
+      "name": "Text Input",
+      "kind": "input",
+      "refersTo": "input",
+      "description": "Standard text field; border snaps to a context accent color on focus (mustard shown here).",
+      "html": "<input class=\"ds-input\" type=\"text\" placeholder=\"ค้นหา...\">",
+      "css": ".ds-input{width:100%;background:#FFFFFF;border:1.5px solid #E6DCCB;border-radius:14px;padding:13px 16px;font-family:'Prompt',-apple-system,BlinkMacSystemFont,sans-serif;font-size:15px;font-weight:600;color:#2A1F14;outline:none;transition:border-color .15s} .ds-input::placeholder{color:#7A6B58;font-weight:400} .ds-input:focus{border-color:#F2B33D} .ds-input:focus-visible{outline:none}"
+    },
+    {
+      "name": "Card",
+      "kind": "card",
+      "refersTo": "card",
+      "description": "Base content card — white fill, ambient shadow, no border.",
+      "html": "<div class=\"ds-card\"><div class=\"ds-card-title\">ยอดขายวันนี้</div><div class=\"ds-card-body\">รายละเอียดสรุปยอดขายและสต๊อกประจำวัน</div></div>",
+      "css": ".ds-card{background:#FFFFFF;border-radius:18px;padding:14px;box-shadow:0 1px 2px rgba(60,40,20,.04),0 8px 22px rgba(60,40,20,.07)} .ds-card-title{font-family:'Nunito','Prompt',sans-serif;font-size:14px;font-weight:800;color:#2A1F14;margin-bottom:10px} .ds-card-body{font-family:'Prompt',sans-serif;font-size:12px;font-weight:500;color:#5C4A38;line-height:1.6}"
+    },
+    {
+      "name": "Status Badge — OK",
+      "kind": "chip",
+      "refersTo": "badge-ok",
+      "description": "Pill status badge for in-range stock, completed sync, or balanced close-day count.",
+      "html": "<span class=\"ds-badge ds-badge-ok\">ปกติ</span>",
+      "css": ".ds-badge{display:inline-block;font-size:10px;font-weight:700;padding:4px 10px;border-radius:100px;font-family:'Prompt',sans-serif} .ds-badge-ok{background:#D1FAE5;color:#065F46}"
+    },
+    {
+      "name": "Status Badge — Warn",
+      "kind": "chip",
+      "refersTo": "badge-warn",
+      "description": "Pill status badge for low stock, sync-in-progress, or over-count close-day variance.",
+      "html": "<span class=\"ds-badge ds-badge-warn\">ใกล้หมด</span>",
+      "css": ".ds-badge{display:inline-block;font-size:10px;font-weight:700;padding:4px 10px;border-radius:100px;font-family:'Prompt',sans-serif} .ds-badge-warn{background:#FEF3C7;color:#92400E}"
+    },
+    {
+      "name": "Bottom Nav Tab",
+      "kind": "nav",
+      "refersTo": null,
+      "description": "Active state of a bubble-nav tab: icon floats up and scales, label expands into view. Sits on the mustard SVG nav bar.",
+      "html": "<button class=\"ds-tab\"><span class=\"ds-tab-icon\"><svg viewBox=\"0 0 24 24\" width=\"22\" height=\"22\" fill=\"none\" stroke=\"#fff\" stroke-width=\"2.2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M3 11L12 3L21 11V21H15V15H9V21H3V11Z\"/></svg></span><span class=\"ds-tab-label\">หน้าหลัก</span></button>",
+      "css": ".ds-tab{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:0;cursor:pointer;background:#F2B33D;border:none;border-radius:20px;padding:14px 16px 10px;font-family:'Prompt',sans-serif} .ds-tab-icon{width:22px;height:22px;display:flex;align-items:center;justify-content:center;transform:translateY(-4px) scale(1.1)} .ds-tab-label{font-size:9.5px;font-weight:700;color:#fff;margin-top:3px}"
+    },
+    {
+      "name": "Quantity Stepper",
+      "kind": "custom",
+      "refersTo": null,
+      "description": "Signature counting control used across sell/fry/stock pages — minus (blush/bad) and plus (mustard/cocoa) circular buttons flank a numeric field.",
+      "html": "<div class=\"ds-qctrl\"><button class=\"ds-qbtn ds-qbtn-minus\">−</button><input class=\"ds-qinput\" value=\"1\"><button class=\"ds-qbtn ds-qbtn-plus\">+</button></div>",
+      "css": ".ds-qctrl{display:flex;align-items:center;gap:5px;font-family:'Nunito',sans-serif} .ds-qbtn{width:36px;height:36px;border:none;border-radius:50%;font-size:15px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:transform .12s;box-shadow:0 2px 6px rgba(0,0,0,.1)} .ds-qbtn-minus{background:#F4D9CC;color:#D26A5C} .ds-qbtn-plus{background:#F2B33D;color:#5C3B22} .ds-qbtn:active{transform:scale(.86)} .ds-qinput{width:34px;text-align:center;border:1.5px solid #E6DCCB;border-radius:8px;padding:4px 2px;font-size:14px;font-weight:800;color:#2A1F14;outline:none;background:#EFEAE2} .ds-qinput:focus{border-color:#F2B33D}"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Golden Hour Stall",
+    "overview": "Puff Stick POS looks like the counter it runs on: a fried-dough stall lit by late-afternoon gold. Mustard is the dominant voice — hero cards, primary CTAs, the active nav state, the sales headline — because a rushed staff member glancing at a phone under counter glare needs to find the one thing that matters instantly, without hunting through a palette of equally loud options. Cocoa anchors the dark, confident numerals; cream, olive, blush, sage, and lilac give each operational area (sell, fry, stock, close, history) its own soft identity without ever outshining mustard.\n\nEvery surface — card, hero, button, chip — carries the same soft ambient shadow (--sh). Shadow here is atmosphere, not architecture: it says \"this is warm and tappable,\" never \"this sits above that.\" The one exception is the glow shadow under primary CTAs and hero cards, a second, colored layer that exists purely to pull the thumb toward the next action.\n\nThe system is built for touch first: every tappable control compresses to roughly 0.96 scale on press, hover states are gated behind @media (hover: hover) and treated as a bonus for desktop/HQ viewers, not a requirement. Typography splits work by job — Nunito at 800–900 weight for anything numeric (prices, totals, counts, dates), Prompt for Thai body copy and labels — so a busy counter screen still reads as one warm, cohesive voice rather than a cold operations dashboard bolted onto a food brand.",
+    "keyCharacteristics": [
+      "Mustard-led, generously applied — the primary accent recurs on nearly every screen rather than being rationed to one element",
+      "Ambient-only shadow (--sh) on every surface; a second colored glow shadow is reserved for CTAs and hero cards",
+      "Bold Nunito numerals paired with friendly Prompt Thai text — never a flat, gray, SaaS-admin voice",
+      "Tactile press-down feedback (~0.96 scale) on every interactive control; hover is a bonus, not a requirement",
+      "Soft 8–24px rounding throughout, pill badges for status, no hard corners anywhere"
+    ],
+    "rules": [
+      { "name": "The Always-Gold Rule", "body": "Mustard is not rationed to a single element per screen — it runs through hero backgrounds, primary CTAs, active nav, and positive highlights everywhere it's earned. Its job is instant recognizability under a rushed glance, not restraint.", "section": "colors" },
+      { "name": "The One Border Rule", "body": "There is exactly one border color (--border, #E6DCCB) in the entire system. Don't introduce a second neutral border tone — differentiate surfaces with fill and shadow instead.", "section": "colors" },
+      { "name": "The Numerals-Are-Nunito Rule", "body": "Any figure the staff needs to read at a glance — money, counts, quantities, times — renders in Nunito 800/900. Prompt never carries a hero number.", "section": "typography" },
+      { "name": "The No-Structure Shadow Rule", "body": "Shadow depth never varies by importance or z-order — every surface gets the same ambient lift. Only a second, colored glow shadow is allowed, and only under something the user is meant to tap next.", "section": "elevation" }
+    ],
+    "dos": [
+      "Do reuse the ambient --sh shadow on every card/surface; never invent a new shadow value for a \"new\" component.",
+      "Do render every price, total, count, and timestamp figure in Nunito 800/900 — numerals are always the boldest thing on the line.",
+      "Do scale interactive elements to ~0.96–0.97 on :active; every tap needs visible, immediate feedback since this runs on touch devices at a counter.",
+      "Do use pill badges (100px radius) with the fixed ok/warn/bad bg+fg pairs for any status communication — stock levels, sync state, close-day variance.",
+      "Do let mustard recur across a screen (hero, CTA, active nav, highlight ring) rather than rationing it to one element."
+    ],
+    "donts": [
+      "Don't introduce cold grays, pure-black text, or hairline-border-only cards — this is a warm, shadow-lifted, cocoa-tinted system, not a flat SaaS admin panel.",
+      "Don't rely on a hover-only affordance for anything a counter-device user must be able to do; hover rules are a bonus layer gated behind @media (hover: hover), never the only path to an action.",
+      "Don't invent a second border color. There is one border tone (--border); use fill-color changes to show selected/active state instead.",
+      "Don't give shadow a hierarchy job. Depth communicates \"tappable,\" not \"important\" — importance is mustard's job, not the shadow's."
+    ]
+  }
+}
