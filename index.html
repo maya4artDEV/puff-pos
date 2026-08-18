@@ -1217,7 +1217,8 @@ function renderDeviceModeToggle() {
     ];
     modes.forEach(function(opt) {
         var btn = el("button", {
-            style: [
+            "data-mode": opt.id,
+            css: [
                 "padding:5px 10px",
                 "border-radius:10px",
                 "border:1.5px solid " + (cur === opt.id ? "var(--mustard)" : "#CCC"),
@@ -1227,11 +1228,20 @@ function renderDeviceModeToggle() {
                 "font-family:var(--f)",
                 "cursor:pointer",
                 "transition:all .15s"
-            ].join(";"),
-            onclick: function() { setDeviceMode(opt.id); }
+            ].join(";")
         }, [opt.label]);
         wrap.appendChild(btn);
     });
+}
+function onDeviceModeToggleClick(ev) {
+    var t = ev.target;
+    while (t && t !== this) {
+        if (t.getAttribute && t.getAttribute("data-mode")) {
+            setDeviceMode(t.getAttribute("data-mode"));
+            return;
+        }
+        t = t.parentNode;
+    }
 }
 function doLogin() {
     var name  = ($("loginName")||{value:""}).value.trim();
@@ -2991,6 +3001,8 @@ window.addEventListener("DOMContentLoaded", function() {
     }
     updLoginBtn();
     renderDeviceModeToggle();  // Task 1: show mode toggle on login screen
+    var dmt = $("deviceModeToggle");
+    if (dmt) dmt.addEventListener("click", onDeviceModeToggleClick);
     // Init nav indicator — only renders if mainApp is visible
     function initNavPath(tries) {
         tries = tries || 0;
