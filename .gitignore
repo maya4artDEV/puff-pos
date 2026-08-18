@@ -14,3 +14,4 @@ secrets.local.*
 # scratch
 tmp/
 *.log
+node_modules/

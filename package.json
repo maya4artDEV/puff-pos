@@ -1,0 +1,27 @@
+{
+  "name": "puff-pos",
+  "version": "1.0.0",
+  "description": "Single-file daily-sales-summary tool for the PuffStick frozen-snack franchise (~20 branches). Vanilla HTML/JS, no build step. Backend = Google Apps Script + Google Sheets.",
+  "main": "index.js",
+  "directories": {
+    "doc": "docs"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/maya4artDEV/puff-pos.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/maya4artDEV/puff-pos/issues"
+  },
+  "homepage": "https://github.com/maya4artDEV/puff-pos#readme",
+  "devDependencies": {
+    "playwright": "^1.62.1"
+  }
+}
