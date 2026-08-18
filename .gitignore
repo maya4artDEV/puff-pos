@@ -1,0 +1,16 @@
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+
+# secrets — never commit tokens/keys. Keep local-only notes in these:
+secrets.local.*
+*.secret.*
+.env
+.env.*
+
+# scratch
+tmp/
+*.log
