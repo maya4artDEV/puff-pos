@@ -18,6 +18,7 @@ Applies to `index.html` (the POS app). Full reference: `docs/puffstick-conventio
 - No Python-style escaping (`\'`).
 - No `var location` (shadows `window.location`) → use `locName`.
 - No `oninput` that triggers a full re-render (cursor jumps) → update only the sum element.
+- **No `onclick: function(){}` passed to `el()`.** `el()` has no `onclick` case, so a function value hits `setAttribute("onclick", fn)` → stringified, closure lost → the handler throws on click (dead button, no visible error). Use a `data-*` attribute + one delegated `addEventListener` on the container. Any interactive element built via `el()` must be **clicked in a browser** before its task is called done — `node --check`/brace-balance do not test behavior.
 
 ## Known bug patterns — prevent, don't re-introduce
 | Symptom | Cause | Prevention |
