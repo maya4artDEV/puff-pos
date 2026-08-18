@@ -19,6 +19,7 @@ Applies to `index.html` (the POS app). Full reference: `docs/puffstick-conventio
 - No `var location` (shadows `window.location`) → use `locName`.
 - No `oninput` that triggers a full re-render (cursor jumps) → update only the sum element.
 - **No `onclick: function(){}` passed to `el()`.** `el()` has no `onclick` case, so a function value hits `setAttribute("onclick", fn)` → stringified, closure lost → the handler throws on click (dead button, no visible error). Use a `data-*` attribute + one delegated `addEventListener` on the container. Any interactive element built via `el()` must be **clicked in a browser** before its task is called done — `node --check`/brace-balance do not test behavior.
+- ห้ามส่ง `onclick: function(){}` เข้า `el()` — `el()` ไม่มี case onclick, function value จะไป `setAttribute("onclick", fn)` → stringify, closure หาย → handler throw ตอนคลิก (ปุ่มตาย ไม่มี error). ใช้ `data-*` attribute + delegated `addEventListener` บน container แทน. element ที่ทำผ่าน `el()` ต้องคลิกเทสจริงในเบราว์เซอร์ก่อนถือว่า task ผ่าน — `node --check`/brace-balance ไม่ได้เทส behavior
 
 ## Known bug patterns — prevent, don't re-introduce
 | Symptom | Cause | Prevention |

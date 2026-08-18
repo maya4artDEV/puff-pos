@@ -8,12 +8,12 @@
 
 ## 2026-08-18
 
-**`el()` + `onclick: function(){}` = a dead button, silently.** `el()` has no special case for `onclick`, so a function value falls through to `setAttribute("onclick", fn)`, which stringifies the function and loses its closure (`opt is not defined` on click). The agent shipped this and passed it, because brace-balance + grep only prove syntax, not behavior.
-- Fix: `data-mode` attribute + one delegated `addEventListener` on the container (matches the file's `onclick="..."`-string convention and Tony's stated preference).
-- → graduated → `.agents/rules/code-conventions.md` (event handlers via `el()`).
+**`el()` + `onclick: function(){}` = ปุ่มตายเงียบ.** `el()` ไม่มี case สำหรับ `onclick` → function value ตกไป `setAttribute("onclick", fn)` → stringify หลุด closure → ปุ่ม throw ตอนคลิก (`opt is not defined`) โดยไม่มี error โชว์ในหน้าจอ
+- Fix: `data-*` attribute + delegated `addEventListener` บน container
+- → graduated → `.agents/rules/code-conventions.md` (event handlers via `el()`)
 
-**Static checks are not a passing test for event handlers.** `node --check` / brace-balance verify the code parses; they do not verify a click does anything. An event handler is only "done" after a real click in a browser.
-- → reinforces the workflow: for any interactive element, a browser click test is part of the task's done-criteria, not optional.
+**Static check ไม่ใช่การเทส event handler.** `node --check` / brace-balance ยืนยันแค่ว่า parse ผ่าน ไม่ได้ยืนยันว่าคลิกแล้วทำงาน. interactive element ต้องคลิกจริงในเบราว์เซอร์ถึงถือว่า task ผ่าน
+- → reinforces: browser click test เป็น done-criteria ของทุก interactive element ที่สร้างผ่าน `el()` — ไม่ใช่ optional
 
 ## 2026-08-18
 
