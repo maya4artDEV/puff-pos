@@ -8,9 +8,25 @@
 
 ## 2026-08-18
 
-**Task 3 (read-path merge removal) — grep confirms.** หลังลบ merge block ใน `prefetchCloudState`, grep ยืนยันว่า `doReplace`/`cScore`/`lScore` = 0 hits, `activityScore` เหลือแค่ใน `migrateBranchKeys`. ตัวบั๊กสำคัญที่แก้มา 5 รอบไม่หาย ตอนนี้ต้นตอฝั่ง client ถูกตัดออกแล้ว รอ Task 5 ปิดฝั่ง server. Playwright test ที่ agent เขียนมี flaw (re-implement spec แทนที่จะเรียก function จริง) — grep audit จับได้แทน.
-- Lesson: static grep audit หลัง surgical edit สำคัญไม่แพ้ automated test
-- → keep as history (ยังไม่ graduate เพราะบทเรียนเฉพาะ merge fix)
+**Task 7 — HQ polling + guards ครบ ผ่าน audit เข้ม.** 5 guards ใน interval (currentTab/authed/hidden/inflight/online) + `stopHQPolling` wire 3 จุด (doLogout/go-leave-hq/self-stop) + `onDone` callback fires 6 exit paths ของ `refreshHQData`. Agent wire `doLogout` เพิ่มเองนอก PLAN (ถูกต้อง — กัน orphan timer ตอน logout ระหว่าง polling) — audit เต็มจับได้ แต่ agent ควรรายงานก่อนเพิ่ม scope.
+
+**Task 6½ — no-cors trap + text/plain fix.** POST ที่ใช้ `mode:"no-cors"` = response opaque → client อ่านสถานะไม่ได้ → `.then()` fire แม้ server reject → queue drop entry = silent data loss. Fix: เปลี่ยน `mode:"cors"` + `Content-Type: "text/plain;charset=utf-8"` (ข้าม preflight ไม่ต้องแก้ Apps Script) + อ่าน `r.json()` แล้วเช็ค `d.ok` ก่อน remove queue.
+- Apps Script `/exec` ตอบ 302 redirect — browser fetch handle เองได้ แต่ต้องเทสจริงหน้างานหลัง deploy
+- Lesson: no-cors + .then = presumed success, ไม่ใช่ verified success. Production API calls ที่ต้องรู้ผล ต้องอ่าน response จริง.
+
+**Secrets — chat ก็ไม่วาง.** Tony เกือบส่ง `TG_CHAT_ID` (จริงๆ คือ token) มาแชทให้ NOVA แก้ให้. NOVA ปฏิเสธ. เหตุผล:
+- chat ID กับ bot token คนละตัว — bot token = ยิงข้อความในนามบอตได้ = ปลอมระบบแจ้งเตือน
+- ถ้าพิมพ์ใน chat = อยู่ใน context ถาวร + เสี่ยง copy กลับ commit
+- graduate rule เดิม "never commit" → ครอบถึง "never share via chat" ด้วย
+- ทางถูก: Tony วางเองในเบราว์เซอร์ 2 ที่ (Owner + Franchise Apps Script), ไฟล์ใน repo คง `TG_BOT_TOKEN = ""`
+- → graduated → `.agents/rules/backend-appsscript.md` (Secrets section)
+
+**Task 5 — backend plain upsert, ต้องอ่านไฟล์เต็มไม่ใช่แค่ diff.** `diff` โชว์แค่ส่วนเปลี่ยน — ต้องเห็นบริบทรอบข้างว่า event handlers (sale/fry/gift_sale/state_get/state_list/state_latest) ยังอยู่ครบ ไม่มี regression. audit วิธี: `grep -c "data.type === \"<evt>\""` เทียบว่าครบทุก event ที่ live อยู่.
+- Lesson: production backend audit = อ่านไฟล์เต็ม + grep นับ event handlers ทั้งหมด. Diff-only audit เสี่ยงพลาด removal โดยไม่ตั้งใจ.
+
+**Task 3 — read-path merge removal, grep audit confirms.** หลังลบ merge block ใน `prefetchCloudState`, grep ยืนยันว่า `doReplace/cScore/lScore` = 0 hits, `activityScore` เหลือแค่ใน `migrateBranchKeys`. ตัวบั๊กที่แก้มา 5 รอบไม่หาย ตอนนี้ต้นตอฝั่ง client ถูกตัดออกแล้ว รอ Task 5 ปิดฝั่ง server.
+- Playwright test ที่ agent เขียนมี flaw: re-implement spec ใน test เอง แทนที่จะเรียก `prefetchCloudState()` จริง — grep audit จับได้แทน.
+- Lesson: static grep audit หลัง surgical edit สำคัญไม่แพ้ automated test. Test ต้องเรียก function จริง ไม่ใช่จำลอง logic ซ้ำใน test body.
 
 **`el()` + `onclick: function(){}` = ปุ่มตายเงียบ.** `el()` ไม่มี case สำหรับ `onclick` → function value ตกไป `setAttribute("onclick", fn)` → stringify หลุด closure → ปุ่ม throw ตอนคลิก (`opt is not defined`) โดยไม่มี error โชว์ในหน้าจอ
 - Fix: `data-*` attribute + delegated `addEventListener` บน container
