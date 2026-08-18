@@ -8,23 +8,23 @@ const TG_BOT_TOKEN  = "";  // set in Apps Script only — never commit the real 
 const TG_CHAT_ID    = "5566010745";
 
 
-// คะแนนความสมบูรณ์ของ state — ใช้ตัดสินว่า state ไหนควรชนะ
-function scoreState(st) {
-  if (!st) return -1;
-  var s = 0;
-  s += (st.sales||[]).length * 10;
-  s += (st.fry_log||[]).length * 10;
-  s += (st.stock_log||[]).length * 10;
-  s += (st.gift_sales||[]).length * 10;
-  s += (st.delivery_sales||[]).length * 10;
-  s += (st.withdrawals||[]).length * 5;
+// ตรวจสอบว่า state ว่างเปล่าหรือไม่ (all-zero / no activity)
+function isEmptyState(st) {
+  if (!st) return true;
+  if (st.sales && st.sales.length) return false;
+  if (st.fry_log && st.fry_log.length) return false;
+  if (st.stock_log && st.stock_log.length) return false;
+  if (st.gift_sales && st.gift_sales.length) return false;
+  if (st.delivery_sales && st.delivery_sales.length) return false;
+  if (st.withdrawals && st.withdrawals.length) return false;
+  var hasStock = false;
   if (st.stock) {
     Object.keys(st.stock).forEach(function(k) {
       var x = st.stock[k];
-      s += (x.received_pieces||0) + (x.fry_out||0) + (x.sold||0);
+      if ((x.received_pieces||0) > 0 || (x.fry_out||0) > 0 || (x.sold||0) > 0) hasStock = true;
     });
   }
-  return s;
+  return !hasStock;
 }
 
 function doPost(e) {
@@ -32,8 +32,12 @@ function doPost(e) {
     const data = JSON.parse(e.postData.contents);
     const ss   = SpreadsheetApp.openById(SHEET_ID);
 
-    // ── Cloud State: บันทึก state ต่อสาขาต่อวัน ──
+    // ── Cloud State: บันทึก state ต่อสาขาต่อวัน (Plain Upsert) ──
     if (data.type === "state_save") {
+      // Guard: ไม่รับ payload ที่ว่างเปล่าทั้ง state เพื่อกันไม่ให้แถวที่มีข้อมูลถูกล้าง
+      if (isEmptyState(data.state)) {
+        return ContentService.createTextOutput(JSON.stringify({ok:true, skipped:true, reason:"empty state ignored"})).setMimeType(ContentService.MimeType.JSON);
+      }
       var sheet = ss.getSheetByName("CloudState") || ss.insertSheet("CloudState");
       if (sheet.getLastRow() === 0) {
         sheet.appendRow(["branch","date","updated_at","state_json"]);
@@ -48,14 +52,6 @@ function doPost(e) {
       var now = new Date().toLocaleString("th-TH", {timeZone:"Asia/Bangkok"});
       var stateJson = JSON.stringify(data.state);
       if (found > 0) {
-        // Never let a poorer state overwrite a richer one (multi-device protection)
-        try {
-          var existing = JSON.parse(sheet.getRange(found, 4).getValue());
-          if (scoreState(data.state) < scoreState(existing)) {
-            return ContentService.createTextOutput(JSON.stringify({ok:true, skipped:true, reason:"existing state richer"})).setMimeType(ContentService.MimeType.JSON);
-          }
-        } catch(eG) {}
-
         sheet.getRange(found, 3).setValue(now);
         sheet.getRange(found, 4).setValue(stateJson);
       } else {
