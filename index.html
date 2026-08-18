@@ -8,8 +8,8 @@
 <meta http-equiv="Expires" content="0">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
-<meta name="build-version" content="20260818.2010">
-<title>Puff Stick POS v12 · 20260818.2010</title>
+<meta name="build-version" content="20260818.2255">
+<title>Puff Stick POS v12 · 20260818.2255</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@700;800;900&family=Prompt:wght@400;500;600;700;800&display=swap" rel="stylesheet">
@@ -617,7 +617,7 @@ input:focus-visible,select:focus-visible,textarea:focus-visible{outline:none}
     <div id="headerClock"></div>
     <div id="syncIcon" style="font-size:11px;color:#6B9E4B;padding:0 0 4px;cursor:default;font-family:var(--fn)" title="ซิงค์แล้ว">☁✓</div>
     <div id="deviceModeBadge" style="font-size:9px;font-family:var(--f);padding:1px 6px;border-radius:8px;margin-bottom:4px"></div>
-    <div id="buildVer" style="font-family:var(--f);font-size:9px;color:var(--muted);padding:0 0 6px;opacity:.6">build 20260818.2010</div>
+    <div id="buildVer" style="font-family:var(--f);font-size:9px;color:var(--muted);padding:0 0 6px;opacity:.6">build 20260818.2255</div>
   </div>
 
   <!-- PAGES (role=main wraps all tab pages) -->
@@ -3282,15 +3282,21 @@ function renderHQEnterPin(pg) {
 function renderHQDashboard(pg) {
     pg.appendChild(el("div", {txt:"HQ Dashboard", css:"font-family:var(--fb);font-size:18px;color:var(--cocoa);padding:20px 16px 8px"}));
     pg.appendChild(el("div", {txt:"กำลังโหลดข้อมูลสาขา...", css:"font-size:12px;color:var(--muted);padding:0 16px 16px"}));
+    refreshHQData();
+}
+
+function refreshHQData(onDone) {
     if (!navigator.onLine) {
-        var box = $("page-hq").querySelector("div:last-child");
+        var pg2 = $("page-hq");
+        var box = pg2 ? pg2.querySelector("div:last-child") : null;
         if (box) box.textContent = "ออฟไลน์ — ไม่สามารถโหลดข้อมูลได้";
+        if (onDone) onDone();
         return;
     }
     fetch(OWNER_URL + "?type=state_list")
     .then(function(r) { return r.json(); })
     .then(function(data) {
-        var pg2 = $("page-hq"); if (!pg2) return;
+        var pg2 = $("page-hq"); if (!pg2) { if (onDone) onDone(); return; }
         clr(pg2);
         pg2.appendChild(el("div", {css:"display:flex;justify-content:space-between;align-items:center;padding:16px 16px 4px"}, [
             el("div", {txt:"HQ Dashboard", css:"font-family:var(--fb);font-size:18px;color:var(--cocoa)"}),
@@ -3298,6 +3304,7 @@ function renderHQDashboard(pg) {
         ]));
         if (!data.ok || !data.states || !data.states.length) {
             pg2.appendChild(el("div", {txt:"ยังไม่มีข้อมูลสาขา", css:"padding:32px 16px;text-align:center;color:var(--muted);font-size:13px"}));
+            if (onDone) onDone();
             return;
         }
         // Group by branch — show latest per branch
@@ -3338,11 +3345,13 @@ function renderHQDashboard(pg) {
             pg2.appendChild(card);
         });
         pg2.appendChild(el("div", {css:"height:120px"}));
+        if (onDone) onDone();
     })
     .catch(function() {
-        var pg2 = $("page-hq"); if (!pg2) return;
+        var pg2 = $("page-hq"); if (!pg2) { if (onDone) onDone(); return; }
         var err = pg2.querySelector("div:last-child");
         if (err) err.textContent = "โหลดข้อมูลไม่ได้ — ตรวจสอบการเชื่อมต่อ";
+        if (onDone) onDone();
     });
 }
 </script>
