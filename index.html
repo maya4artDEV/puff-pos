@@ -969,6 +969,21 @@ function normDateStr(ds) {
     var y = parseInt(p[2], 10) || 0;
     return (d < 10 ? "0" : "") + d + "/" + (m < 10 ? "0" : "") + m + "/" + y;
 }
+function dateSortKey(ds) {
+    var s = String(ds || "");
+    // ISO first: "2569-12-07..." → yyyymmdd
+    var iso = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (iso) return parseInt(iso[1] + iso[2] + iso[3], 10);
+    // dd/mm/yyyy (with or without leading zeros)
+    var p = s.split("/");
+    if (p.length === 3) {
+        var d = parseInt(p[0], 10) || 0;
+        var m = parseInt(p[1], 10) || 0;
+        var y = parseInt(p[2], 10) || 0;
+        if (d && m && y) return y * 10000 + m * 100 + d;
+    }
+    return 0;
+}
 
 function stateKey(branch, dateStr) {
     return "puff7_" + safeBranch(branch) + "_" + normDateStr(dateStr || todayISO());
@@ -3330,7 +3345,7 @@ function refreshHQData(onDone) {
         // Group by branch — show latest per branch
         var byBranch = {};
         data.states.forEach(function(s) {
-            if (!byBranch[s.branch] || s.date > byBranch[s.branch].date) byBranch[s.branch] = s;
+            if (!byBranch[s.branch] || dateSortKey(s.date) > dateSortKey(byBranch[s.branch].date)) byBranch[s.branch] = s;
         });
         var today = todayISO();
         Object.keys(byBranch).sort().forEach(function(branch) {
