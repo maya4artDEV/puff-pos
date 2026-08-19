@@ -27,6 +27,18 @@ function isEmptyState(st) {
   return !hasStock;
 }
 
+// Normalize any date cell (Date object OR "d/m/yyyy" string) to canonical "dd/mm/yyyy".
+function normDate(v) {
+  if (v instanceof Date) {
+    var d = v.getDate(), m = v.getMonth() + 1, y = v.getFullYear();
+    return (d < 10 ? "0" : "") + d + "/" + (m < 10 ? "0" : "") + m + "/" + y;
+  }
+  var p = String(v).split("/");
+  if (p.length !== 3) return String(v);
+  var dd = parseInt(p[0], 10) || 0, mm = parseInt(p[1], 10) || 0, yy = parseInt(p[2], 10) || 0;
+  return (dd < 10 ? "0" : "") + dd + "/" + (mm < 10 ? "0" : "") + mm + "/" + yy;
+}
+
 function doPost(e) {
   try {
     const data = JSON.parse(e.postData.contents);
@@ -44,10 +56,11 @@ function doPost(e) {
         sheet.getRange(1,1,1,4).setFontWeight("bold").setBackground("#0D3B6E").setFontColor("#fff");
         sheet.setFrozenRows(1);
       }
+      sheet.getRange(1, 2, Math.max(sheet.getMaxRows(), 2), 1).setNumberFormat("@"); // col B = plain text, never a date
       var rows = sheet.getLastRow() > 1 ? sheet.getRange(2, 1, sheet.getLastRow()-1, 2).getValues() : [];
       var found = -1;
       for (var i = 0; i < rows.length; i++) {
-        if (rows[i][0] === data.branch && rows[i][1] === data.date) { found = i + 2; break; }
+        if (rows[i][0] === data.branch && normDate(rows[i][1]) === normDate(data.date)) { found = i + 2; break; }
       }
       var now = new Date().toLocaleString("th-TH", {timeZone:"Asia/Bangkok"});
       var stateJson = JSON.stringify(data.state);
@@ -174,7 +187,7 @@ function doGet(e) {
       }
       var rows = sheet.getRange(2, 1, sheet.getLastRow()-1, 4).getValues();
       function dateNum(ds) {
-        var p = String(ds).split("/");
+        var p = normDate(ds).split("/");
         if (p.length !== 3) return -1;
         return (parseInt(p[2],10)||0)*10000 + (parseInt(p[1],10)||0)*100 + (parseInt(p[0],10)||0);
       }
@@ -190,7 +203,7 @@ function doGet(e) {
       return ContentService.createTextOutput(JSON.stringify({
         ok: true,
         state: JSON.parse(best[3]),
-        date: String(best[1]),
+        date: normDate(best[1]),
         updated_at: String(best[2])
       })).setMimeType(ContentService.MimeType.JSON);
     } catch(err) {
@@ -249,7 +262,7 @@ function doGet(e) {
             });
           }
           states.push({
-            branch: row[0], date: row[1], updated_at: row[2],
+            branch: row[0], date: normDate(row[1]), updated_at: row[2],
             lastStaff: st.lastStaff || null,
             totalAmount: totalAmount, orderCount: orderCount,
             soldPieces: soldPieces, frozenPieces: frozenPieces,
