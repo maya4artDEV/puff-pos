@@ -4,7 +4,7 @@
 // ═══════════════════════════════════════════════════════
 
 const SHEET_ID      = "1f6v9eLTGVl8bMxFMWNetppcIpWsPKAPXr6UekzmO-ms";
-const TG_BOT_TOKEN  = "";  // set in Apps Script only — never commit the real token
+const TG_BOT_TOKEN  = "8704590750:AAGr4eut_MN4GOhATAKz6KkfsGkzk6Wxs-0";  // set in Apps Script only — never commit the real token
 const TG_CHAT_ID    = "5566010745";
 
 
