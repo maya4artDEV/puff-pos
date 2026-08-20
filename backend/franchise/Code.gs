@@ -4,7 +4,7 @@
 // ═══════════════════════════════════════════════════════
 
 const SHEET_ID      = "1f6v9eLTGVl8bMxFMWNetppcIpWsPKAPXr6UekzmO-ms";
-const TG_BOT_TOKEN  = "8704590750:AAGr4eut_MN4GOhATAKz6KkfsGkzk6Wxs-0";  // set in Apps Script only — never commit the real token
+const TG_BOT_TOKEN  = "";  // set in Apps Script only — never commit
 const TG_CHAT_ID    = "5566010745";
 
 
@@ -248,7 +248,7 @@ function doGet(e) {
         if (!row[0] || !row[1]) return;
         try {
           var st = JSON.parse(row[3]);
-          var totalAmount = 0, orderCount = 0, soldPieces = 0, frozenPieces = 0;
+          var totalAmount = 0, orderCount = 0, soldPieces = 0, frozenPieces = 0, fryPieces = 0;
           if (st.sales) {
             orderCount = st.sales.length;
             st.sales.forEach(function(s){ totalAmount += (s.totalAmount || 0); });
@@ -259,6 +259,7 @@ function doGet(e) {
               soldPieces += (s.sold || 0);
               var recv = s.received_pieces || (s.received_packs||0)*10;
               frozenPieces += Math.max(0, recv - (s.fry_out||0));
+              fryPieces += (s.fry_out || 0);
             });
           }
           states.push({
@@ -266,6 +267,7 @@ function doGet(e) {
             lastStaff: st.lastStaff || null,
             totalAmount: totalAmount, orderCount: orderCount,
             soldPieces: soldPieces, frozenPieces: frozenPieces,
+            fryPieces: fryPieces,
             pricePerPiece: st.pricePerPiece || 25
           });
         } catch(e2) {}
