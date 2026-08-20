@@ -15,3 +15,4 @@ secrets.local.*
 tmp/
 *.log
 node_modules/
+package-lock.json
