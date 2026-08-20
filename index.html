@@ -8,8 +8,8 @@
 <meta http-equiv="Expires" content="0">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
-<meta name="build-version" content="20260819.1027">
-<title>Puff Stick POS v12 · 20260819.1027</title>
+<meta name="build-version" content="20260820.1756">
+<title>Puff Stick POS v12 · 20260820.1756</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@700;800;900&family=Prompt:wght@400;500;600;700;800&display=swap" rel="stylesheet">
@@ -615,9 +615,9 @@ input:focus-visible,select:focus-visible,textarea:focus-visible{outline:none}
       <button class="logout-btn" onclick="doLogout()">ออกจากระบบ</button>
     </div>
     <div id="headerClock"></div>
-    <div id="syncIcon" style="font-size:11px;color:#6B9E4B;padding:0 0 4px;cursor:default;font-family:var(--fn)" title="ซิงค์แล้ว">☁✓</div>
+    <div id="syncIcon" style="font-size:11px;color:#6B9E4B;padding:0 0 4px;cursor:pointer;font-family:var(--fn)" title="กดเพื่อซิงค์ทันที">☁✓</div>
     <div id="deviceModeBadge" style="font-size:9px;font-family:var(--f);padding:1px 6px;border-radius:8px;margin-bottom:4px"></div>
-    <div id="buildVer" style="font-family:var(--f);font-size:9px;color:var(--muted);padding:0 0 6px;opacity:.6">build 20260819.1027</div>
+    <div id="buildVer" style="font-family:var(--f);font-size:9px;color:var(--muted);padding:0 0 6px;opacity:.6">build 20260820.1756</div>
   </div>
 
   <!-- PAGES (role=main wraps all tab pages) -->
@@ -3007,6 +3007,19 @@ window.addEventListener("DOMContentLoaded", function() {
     renderDeviceModeToggle();  // Task 1: show mode toggle on login screen
     var dmt = $("deviceModeToggle");
     if (dmt) dmt.addEventListener("click", onDeviceModeToggleClick);
+    var si = $("syncIcon");
+    if (si) si.addEventListener("click", function() {
+        if (getDeviceMode() === "viewer") {
+            if (currentTab === "hq") {
+                if (typeof refreshHQData === "function") refreshHQData();
+            } else if (currentBranch) {
+                _lastCloudRefresh = 0;
+                refreshFromCloud();
+            }
+        } else {
+            flushSyncQueue();
+        }
+    });
     // Init nav indicator — only renders if mainApp is visible
     function initNavPath(tries) {
         tries = tries || 0;
@@ -3364,7 +3377,7 @@ function refreshHQData(onDone) {
             if (s.lastStaff && s.lastStaff.nick) {
                 card.appendChild(el("div", {txt:"พนักงาน: " + s.lastStaff.nick + " (" + s.lastStaff.name + ")", css:"font-size:11px;color:var(--muted);margin-bottom:8px"}));
             }
-            var nums = el("div", {css:"display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px"});
+            var nums = el("div", {css:"display:grid;grid-template-columns:1fr 1fr;gap:6px"});
             function numBox(label, val, color) {
                 return el("div", {css:"background:var(--bg);border-radius:8px;padding:6px;text-align:center"}, [
                     el("div", {txt:val, css:"font-family:var(--fn);font-size:16px;font-weight:700;color:" + color}),
@@ -3374,6 +3387,7 @@ function refreshHQData(onDone) {
             nums.appendChild(numBox("ยอด ฿", Number(s.totalAmount||0).toLocaleString(), "var(--cocoa)"));
             nums.appendChild(numBox("ขายแล้ว", (s.soldPieces||0) + " ชิ้น", "var(--mustard)"));
             nums.appendChild(numBox("แช่แข็ง", (s.frozenPieces||0) + " ชิ้น", "var(--cocoa)"));
+            nums.appendChild(numBox("ทอดวันนี้", (s.fryPieces||0) + " ชิ้น", "var(--cocoa)"));
             card.appendChild(nums);
             if (s.updated_at) {
                 card.appendChild(el("div", {txt:"อัปเดต: " + s.updated_at, css:"font-size:9px;color:var(--muted);margin-top:8px;text-align:right"}));
