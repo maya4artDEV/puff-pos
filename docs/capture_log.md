@@ -8,6 +8,10 @@
 
 ## 2026-08-20
 
+**sync fix VERIFIED หน้างานจริง 20/08** — T2 (viewer read-only ยิง Telegram ไม่ได้) + T8 (cross-device ตรง, Sheet 1 แถว/สาขา, upsert+normDate ทำงาน).
+ปิดบั๊ก 5 เดือนที่ต้นตอ Sheets date coercion.
+เรียนรู้: HQ ไม่มีช่องทอดตรงๆ แสดงผ่านแช่แข็ง(=recv-fry_out); viewer block ทุก write = read-only จริง
+
 **Task 10 — Sheets date coercion = ต้นตอจริงของ cross-device mismatch.** Google Sheets แปลง "dd/MM/yyyy" ที่ day<=12 เป็น Date object อัตโนมัติ (locale MM/DD → "12/07" กลายเป็น ธ.ค. 7).
 พัง 3 ชั้น: (1) state_save match `rows[i][1] === data.date` = Date !== string → หา row ไม่เจอ → append รัวเป็นร้อยแถว
 (2) เขียนแล้วโดนสลับ เดือน/วัน (3) state_list คืน Date raw → JSON เป็น ISO → HQ sort เป็นอนาคต.
