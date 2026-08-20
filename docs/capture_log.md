@@ -6,6 +6,23 @@
 
 ---
 
+## 2026-08-20
+
+**Task 10 — Sheets date coercion = ต้นตอจริงของ cross-device mismatch.** Google Sheets แปลง "dd/MM/yyyy" ที่ day<=12 เป็น Date object อัตโนมัติ (locale MM/DD → "12/07" กลายเป็น ธ.ค. 7).
+พัง 3 ชั้น: (1) state_save match `rows[i][1] === data.date` = Date !== string → หา row ไม่เจอ → append รัวเป็นร้อยแถว
+(2) เขียนแล้วโดนสลับ เดือน/วัน (3) state_list คืน Date raw → JSON เป็น ISO → HQ sort เป็นอนาคต.
+Fix: normDate() แปลง Date+string เป็น canonical "dd/mm/yyyy" ใช้ตอน match + read + setNumberFormat("@") กัน coercion.
+บทเรียนใหญ่: แก้ client 9 รอบไม่หายเพราะบั๊กอยู่ชั้น server date ที่ไม่เคยเจาะ. Audit Task 5 พลาดเพราะเช็คแค่ scoreState หาย ไม่ไล่ logic การ match date. → Rule: audit backend ต้องไล่ทั้ง read + write + match path ไม่ใช่แค่ "ฟังก์ชันที่ถูกลบ".
+
+**ไฟล์แนบชื่อซ้ำ = ได้ไฟล์เดียว.** อัปโหลดไฟล์ชื่อเดียวกัน 2 ไฟล์ (Code.gs Owner + Franchise) พร้อมกัน → ระบบเก็บได้ไฟล์เดียว (ตัวหลังทับ).
+เกิดซ้ำ 2 ครั้งใน session นี้. → ต้อง rename ก่อนแนบ (Code_Owner.gs / Code_Franchise.gs) หรือ zip.
+NOVA ต้อง md5/identify ไฟล์ก่อนสรุปว่า "ได้กี่ไฟล์" ไม่เชื่อจำนวน file_path tag.
+
+**Batch test เจอ 4 latent bug ที่ 8-task chain ไม่ครอบ.** viewer ยิง Telegram (spec Task 2 แคบ) + HQ date string-compare + ISO garbage + isToday.
+บทเรียน: acceptance test หน้างานจริงจับ bug ที่ unit/static ไม่เจอ — โดยเฉพาะ integration ข้าม client↔sheet.
+
+---
+
 ## 2026-08-18
 
 **Task 7 — HQ polling + guards ครบ ผ่าน audit เข้ม.** 5 guards ใน interval (currentTab/authed/hidden/inflight/online) + `stopHQPolling` wire 3 จุด (doLogout/go-leave-hq/self-stop) + `onDone` callback fires 6 exit paths ของ `refreshHQData`. Agent wire `doLogout` เพิ่มเองนอก PLAN (ถูกต้อง — กัน orphan timer ตอน logout ระหว่าง polling) — audit เต็มจับได้ แต่ agent ควรรายงานก่อนเพิ่ม scope.
