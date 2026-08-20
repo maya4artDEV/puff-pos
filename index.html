@@ -8,8 +8,8 @@
 <meta http-equiv="Expires" content="0">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
-<meta name="build-version" content="20260820.2354">
-<title>Puff Stick POS v12 · 20260820.2354</title>
+<meta name="build-version" content="20260821.0037">
+<title>Puff Stick POS v12 · 20260821.0037</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@700;800;900&family=Prompt:wght@400;500;600;700;800&display=swap" rel="stylesheet">
@@ -538,6 +538,9 @@ input:focus-visible,select:focus-visible,textarea:focus-visible{outline:none}
     transition-duration: 0.01ms !important;
   }
 }
+input[type=number]:focus { -moz-appearance: textfield; }
+input[type=number]::-webkit-inner-spin-button,
+input[type=number]::-webkit-outer-spin-button { display: none; }
 </style>
 </head>
 <body>
@@ -617,7 +620,7 @@ input:focus-visible,select:focus-visible,textarea:focus-visible{outline:none}
     <div id="headerClock"></div>
     <div id="syncIcon" style="font-size:13px;color:#6B9E4B;padding:6px 10px;cursor:pointer;font-family:var(--fn);border-radius:8px;margin-bottom:2px" title="กดเพื่อซิงค์ทันที">☁✓</div>
     <div id="deviceModeBadge" style="font-size:9px;font-family:var(--f);padding:1px 6px;border-radius:8px;margin-bottom:4px"></div>
-    <div id="buildVer" style="font-family:var(--f);font-size:9px;color:var(--muted);padding:0 0 6px;opacity:.6">build 20260820.2354</div>
+    <div id="buildVer" style="font-family:var(--f);font-size:9px;color:var(--muted);padding:0 0 6px;opacity:.6">build 20260821.0037</div>
   </div>
 
   <!-- PAGES (role=main wraps all tab pages) -->
@@ -3007,6 +3010,11 @@ window.addEventListener("DOMContentLoaded", function() {
     renderDeviceModeToggle();  // Task 1: show mode toggle on login screen
     var dmt = $("deviceModeToggle");
     if (dmt) dmt.addEventListener("click", onDeviceModeToggleClick);
+    document.addEventListener("focusin", function(e) {
+        if (e.target && e.target.type === "number") {
+            e.target.select();
+        }
+    });
     var si = $("syncIcon");
     if (si) si.addEventListener("click", function() {
         if (getDeviceMode() === "viewer") {
