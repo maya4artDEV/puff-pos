@@ -8,8 +8,8 @@
 <meta http-equiv="Expires" content="0">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
-<meta name="build-version" content="20260820.1756">
-<title>Puff Stick POS v12 · 20260820.1756</title>
+<meta name="build-version" content="20260820.2354">
+<title>Puff Stick POS v12 · 20260820.2354</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@700;800;900&family=Prompt:wght@400;500;600;700;800&display=swap" rel="stylesheet">
@@ -615,9 +615,9 @@ input:focus-visible,select:focus-visible,textarea:focus-visible{outline:none}
       <button class="logout-btn" onclick="doLogout()">ออกจากระบบ</button>
     </div>
     <div id="headerClock"></div>
-    <div id="syncIcon" style="font-size:11px;color:#6B9E4B;padding:0 0 4px;cursor:pointer;font-family:var(--fn)" title="กดเพื่อซิงค์ทันที">☁✓</div>
+    <div id="syncIcon" style="font-size:13px;color:#6B9E4B;padding:6px 10px;cursor:pointer;font-family:var(--fn);border-radius:8px;margin-bottom:2px" title="กดเพื่อซิงค์ทันที">☁✓</div>
     <div id="deviceModeBadge" style="font-size:9px;font-family:var(--f);padding:1px 6px;border-radius:8px;margin-bottom:4px"></div>
-    <div id="buildVer" style="font-family:var(--f);font-size:9px;color:var(--muted);padding:0 0 6px;opacity:.6">build 20260820.1756</div>
+    <div id="buildVer" style="font-family:var(--f);font-size:9px;color:var(--muted);padding:0 0 6px;opacity:.6">build 20260820.2354</div>
   </div>
 
   <!-- PAGES (role=main wraps all tab pages) -->
@@ -687,7 +687,7 @@ input:focus-visible,select:focus-visible,textarea:focus-visible{outline:none}
     <div id="triGrid" class="tri-grid" style="margin-bottom:12px"></div>
     <div class="card" id="stackChartCard" style="margin-bottom:12px"></div>
     <div class="card">
-      <div class="card-title">รับสต๊อกเข้า <span style="font-size:10px;font-weight:500;color:var(--muted)">1 แพ็ค = 10 ชิ้น</span></div>
+      <div class="card-title">รับสต๊อกเข้า</div>
       <div id="receiveList"></div>
       <button class="abtn grn" style="margin-top:10px" onclick="saveReceive()">✓ บันทึกรับสต๊อก</button>
     </div>
@@ -1543,11 +1543,11 @@ function renderDeliveryInline() {
     var amtRow = el("div", {css:"display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px"});
     var gW = el("div");
     gW.appendChild(el("div", {txt:"Gross (ลูกค้าจ่าย)", css:"font-size:10px;color:var(--muted);margin-bottom:3px"}));
-    gW.appendChild(el("input", {id:"dlvGross", type:"number", min:"0", value:"0", css:"width:100%;padding:10px;border:1.5px solid var(--cream2);border-radius:10px;font-family:var(--fn);font-size:16px;font-weight:700;text-align:center;color:var(--cocoa);box-sizing:border-box"}));
+    gW.appendChild(el("input", {id:"dlvGross", type:"number", min:"0", value:"", placeholder:"0", css:"width:100%;padding:10px;border:1.5px solid var(--cream2);border-radius:10px;font-family:var(--fn);font-size:16px;font-weight:700;text-align:center;color:var(--cocoa);box-sizing:border-box"}));
     amtRow.appendChild(gW);
     var nW = el("div");
     nW.appendChild(el("div", {txt:"Net (ที่ร้านได้)", css:"font-size:10px;color:var(--muted);margin-bottom:3px"}));
-    nW.appendChild(el("input", {id:"dlvNet", type:"number", min:"0", value:"0", css:"width:100%;padding:10px;border:1.5px solid var(--ok);border-radius:10px;font-family:var(--fn);font-size:16px;font-weight:700;text-align:center;color:var(--ok-fg);box-sizing:border-box"}));
+    nW.appendChild(el("input", {id:"dlvNet", type:"number", min:"0", value:"", placeholder:"0", css:"width:100%;padding:10px;border:1.5px solid var(--ok);border-radius:10px;font-family:var(--fn);font-size:16px;font-weight:700;text-align:center;color:var(--ok-fg);box-sizing:border-box"}));
     amtRow.appendChild(nW);
     box.appendChild(amtRow);
 
@@ -2045,7 +2045,7 @@ function renderFryPage() {
     F.forEach(function(f, fi) {
         var frozen = getFrozen(f.id);
         var row = el("div", {cls:"fry-row", id:"fr-row-"+f.id});
-        var inp = el("input", {cls:"fr-input", id:"fr-"+f.id, type:"number", min:"0", value:"0", placeholder:"0"});
+        var inp = el("input", {cls:"fr-input", id:"fr-"+f.id, type:"number", min:"0", value:"", placeholder:"0"});
         var statusCls = frozen<=0?"empty":frozen<5?"low":"";
         var statusTxt = frozen<=0?"หมดแช่แข็ง":("เหลือ "+frozen);
         inp.disabled = frozen<=0;
@@ -2198,7 +2198,7 @@ function renderStockPage() {
     var rList=$("receiveList"); if(!rList)return; clr(rList);
     F.forEach(function(f){
         var row=el("div",{cls:"rx-row"});
-        var pci=el("input",{cls:"rx-input",id:"rpi-"+f.id,type:"number",min:"0",value:"0",placeholder:"0"});
+        var pci=el("input",{cls:"rx-input",id:"rpi-"+f.id,type:"number",min:"0",value:"",placeholder:"0"});
         row.appendChild(el("span",{cls:"rx-emoji",txt:f.e}));
         row.appendChild(el("span",{cls:"rx-name",txt:f.n}));
         row.appendChild(el("div",{cls:"rx-inputs"},[pci,el("span",{cls:"rx-lbl",txt:"ชิ้น"})]));
@@ -2260,7 +2260,7 @@ function showStockCorrect() {
     var box=$("correctList"); if(!box)return; clr(box);
     F.forEach(function(f){
         var row=el("div",{cls:"rx-row"});
-        var inp=el("input",{cls:"rx-input",id:"cpi-"+f.id,type:"number",value:"0",placeholder:"0"});
+        var inp=el("input",{cls:"rx-input",id:"cpi-"+f.id,type:"number",value:"",placeholder:"0"});
         row.appendChild(el("span",{css:"font-size:16px;margin-right:8px",txt:f.e}));
         row.appendChild(el("span",{css:"flex:1;font-size:12px;font-weight:600;font-family:var(--ft)",txt:f.n}));
         row.appendChild(el("div",{cls:"rx-inputs"},[inp,el("span",{cls:"rx-lbl",txt:"ชิ้น (±)"})]));
@@ -2935,7 +2935,7 @@ function renderGiftStock(){
     if(!S.gift_catalog.length){list.appendChild(el("div",{css:"color:var(--muted);font-size:12px;padding:6px 0;font-family:var(--ft)",txt:"ยังไม่มีรายการของฝาก"}));return;}
     S.gift_catalog.forEach(function(g){var st=S.gift_stock[g.id]||{received:0,sold:0};var rem=Math.max(0,st.received-st.sold);
         var row=el("div",{cls:"rx-row"});
-        var inp=el("input",{cls:"rx-input",id:"gr-"+g.id,type:"number",min:"0",value:"0",placeholder:"0"});
+        var inp=el("input",{cls:"rx-input",id:"gr-"+g.id,type:"number",min:"0",value:"",placeholder:"0"});
         row.appendChild(el("span",{css:"font-size:18px;margin-right:10px",txt:"🎁"}));
         row.appendChild(el("div",{css:"flex:1"},[el("div",{css:"font-family:var(--ft);font-size:12px;font-weight:700",txt:g.name}),el("div",{css:"font-family:var(--f);font-size:10px;color:var(--muted)",txt:"฿"+g.price+"/ชิ้น · คงเหลือ "+rem+" ชิ้น"})]));
         row.appendChild(el("div",{cls:"rx-inputs"},[inp,el("span",{cls:"rx-lbl",txt:"ชิ้น"})]));
@@ -3018,6 +3018,11 @@ window.addEventListener("DOMContentLoaded", function() {
             }
         } else {
             flushSyncQueue();
+        }
+        var el_si = $("syncIcon");
+        if (el_si) {
+            el_si.style.background = "rgba(107,158,75,.15)";
+            setTimeout(function() { el_si.style.background = ""; }, 300);
         }
     });
     // Init nav indicator — only renders if mainApp is visible
