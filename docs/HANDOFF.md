@@ -6,9 +6,9 @@
 
 ## 1. สถานะปัจจุบัน
 
-**Production:** `puff-v12.html` — build `20260815.0648`
+**Production:** `index.html` — build `20260819.1027`
 **Deploy:** GitHub Pages → https://maya4artdev.github.io/puff-pos/ (repo `maya4artDEV/puff-pos`, ไฟล์ชื่อ `index.html`)
-**Backend:** Google Apps Script v7 (Owner + Franchise แยก 2 script) + Google Sheets
+**Backend:** Google Apps Script v8 (Owner + Franchise แยก 2 script) + Google Sheets — v8 เพิ่ม normDate() แก้ date coercion (redeploy Owner+Franchise แล้ว)
 
 ### Deploy URLs (ห้ามเปลี่ยน — deploy ต้องใช้ "Manage deployments → ✏️ → New version" เท่านั้น)
 - Owner: `https://script.google.com/macros/s/AKfycbxMbd0YD2KpUjk0DMYsLdVxGEj1BeCJchv12QmKdN454kMF5BCsIpnsipoTaAWQMOoD/exec`
@@ -16,6 +16,7 @@
 - Owner Sheet ID: `1xvDAq2scrnd9H1XcQCeZoATcT_5EMftjWt94XPzz__w`
 - Franchise Sheet ID: `1f6v9eLTGVl8bMxFMWNetppcIpWsPKAPXr6UekzmO-ms`
 - Telegram Chat ID: `5566010745` (bot token เปลี่ยนแล้ว — อยู่ใน Apps Script)
+- Franchise TG_CHAT_ID: ตั้งจริงแล้ว = `5566010745` (ไม่ใช่ placeholder — ตั้งใน Franchise Apps Script แล้ว)
 
 ---
 
@@ -23,23 +24,22 @@
 
 | # | งาน | รายละเอียด |
 |---|---|---|
-| 1 | **Deploy v12** | build `20260815.0648` — ยังไม่ได้ push |
-| 2 | **ยืนยัน Apps Script v7** | ต้องเช็คว่า deploy แล้วจริง (มี `scoreState` guard) |
-| 3 | **Field test ข้ามเครื่อง** | ลำดับ: เครื่องสาขาเปิดก่อน → ☁✓ → เครื่อง Tony เปิดตาม → ยอดต้องตรง |
-| 4 | **ถ้ายังไม่ตรง** | ขอ raw data: long-press card "สต๊อกแช่แข็ง" ~0.7 วิ จาก **2 เครื่องพร้อมกัน** แล้วเทียบ |
-| 5 | **คู่มือ PDF v3** | ยังไม่ได้ทำ — ต้องเพิ่ม: ปุ่มยืนยันปิดวัน, Delivery, HQ tab |
+| 1 | **Retest cross-device หน้างาน** | Deploy + normDate() ใน v8 แก้ bug หลักแล้ว — retest field จริงว่าตรง |
+| 2 | **คู่มือ PDF v3** | ยังไม่ได้ทำ — ต้องเพิ่ม: ปุ่มยืนยันปิดวัน, Delivery, HQ tab |
+| 3 | **CRM** | scope ไว้แล้ว — รอ kickoff |
 
 ---
 
 ## 3. Bug chain ที่แก้ไปแล้ว (อย่าแก้ซ้ำ / อย่า regress)
 
-ปัญหา "แต่ละเครื่องเห็นสต๊อกไม่ตรงกัน" มี **5 ชั้นซ้อนกัน** ทั้งหมดแก้แล้ว:
+ปัญหา "แต่ละเครื่องเห็นสต๊อกไม่ตรงกัน" มี **6 ชั้นซ้อนกัน** ทั้งหมดแก้แล้ว:
 
 1. **String sort วันที่** — `dd/mm/yyyy` sort แบบ string ทำให้ 30/6 มาหลัง 1/7 → fix: `dateNum()` เทียบเป็นตัวเลข
 2. **`pieces || packs*10`** — `received_pieces === 0` เป็น falsy → ตกไป fallback ได้เลข ×10 → fix: `!== undefined` check + รวมเป็น `getStockForState()` ตัวเดียว (SSOT)
 3. **Empty-state poisoning** — เครื่องที่แค่เปิดดู push state 0 ทับ cloud → fix: `isEmptyState()` guard ทั้ง client + server (`scoreState` ใน GS v7)
 4. **Sync แค่ตอน login** — เปิดแอปค้างทั้งวันไม่เคย refresh → fix: `refreshFromCloud()` บน `pageshow` + `visibilitychange` (throttle 1/นาที)
 5. **Date-key mismatch** ⭐ — Google Sheets ตัด leading zero (`04/07` → `4/7`) ทำให้ cloud data ถูกวางใน key ที่แอปไม่อ่าน → fix: `normDateStr()` normalize ทุก date ก่อนทำ key + `migrateBranchKeys()` รวม key เพี้ยนเก่า
+6. **Sheets date-type coercion (Task 10)** ⭐ — Sheets แปลง "dd/MM/yyyy" ที่ day≤12 เป็น Date object (locale MM/DD) → `rows[i][1] === data.date` = Date !== string → หา row ไม่เจอ → append แถวรัว + ISO date เข้า JSON → HQ sort เป็นอนาคต → fix: `normDate()` ใน Apps Script v8 แปลง Date+string → canonical dd/mm/yyyy + `setNumberFormat("@")` กัน coercion
 
 **Merge policy ปัจจุบัน:** state ที่ "รวยกว่า" ชนะ (`activityScore` = จำนวน sales/fry/stock logs + ยอดสต๊อกรวม) — timestamp ใช้ตัดสินเฉพาะเมื่อ score เท่ากัน บังคับใช้ทั้ง client และ server
 
