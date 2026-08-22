@@ -1,4 +1,4 @@
-// ═══════════════════════════════════════════════════════
+﻿// ═══════════════════════════════════════════════════════
 //  PUFF STICK — Google Apps Script v7 (Franchise)
 //  v4: เพิ่ม CloudState sync + state_save / state_get / state_list
 // ═══════════════════════════════════════════════════════
@@ -42,6 +42,14 @@ function normDate(v) {
 function doPost(e) {
   try {
     const data = JSON.parse(e.postData.contents);
+
+    // ── HQ auth: เทียบ PIN กับ Script Property HQ_PIN (ไม่อยู่ใน source) ──
+    if (data.type === "hq_auth") {
+      var hqPin = PropertiesService.getScriptProperties().getProperty("HQ_PIN") || "";
+      var okHq  = (hqPin !== "" && String(data.pin) === String(hqPin));
+      return ContentService.createTextOutput(JSON.stringify({ok:okHq})).setMimeType(ContentService.MimeType.JSON);
+    }
+
     const ss   = SpreadsheetApp.openById(SHEET_ID);
 
     // ── Cloud State: บันทึก state ต่อสาขาต่อวัน (Plain Upsert) ──
