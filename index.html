@@ -9,8 +9,8 @@
     <meta http-equiv="Expires" content="0">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="default">
-    <meta name="build-version" content="20260821.0037">
-    <title>Puff Stick POS v12 · 20260821.0037</title>
+    <meta name="build-version" content="20260822.2052">
+    <title>Puff Stick POS v12 · 20260822.2052</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link
@@ -3448,7 +3448,7 @@
             <div id="deviceModeBadge"
                 style="font-size:9px;font-family:var(--f);padding:1px 6px;border-radius:8px;margin-bottom:4px"></div>
             <div id="buildVer" style="font-family:var(--f);font-size:9px;color:var(--muted);padding:0 0 6px;opacity:.6">
-                build 20260821.0037</div>
+                build 20260822.2052</div>
         </div>
 
         <!-- PAGES (role=main wraps all tab pages) -->
@@ -6205,16 +6205,30 @@
             var inp = el("input", { type: "tel", maxlength: "6", placeholder: "PIN", css: "width:100%;padding:14px;font-size:24px;letter-spacing:8px;text-align:center;border:1.5px solid var(--cream2);border-radius:12px;background:#fff;margin-bottom:20px;box-sizing:border-box" });
             var btn = el("button", { txt: "เข้าสู่ระบบ HQ", css: "width:100%;padding:16px;background:var(--cocoa);color:#fff;border:none;border-radius:12px;font-family:var(--fb);font-size:16px;cursor:pointer" });
             btn.onclick = function () {
-                var stored = localStorage.getItem("puff10_hqPin") || "";
-                var entered = btoa(inp.value.trim());
-                if (entered === stored) {
-                    localStorage.setItem("puff10_hqSession", String(Date.now()));
-                    _hqAuthed = true;
-                    renderHQTab();
-                } else {
-                    showToast("PIN ไม่ถูกต้อง", true);
-                    inp.value = "";
-                }
+                var pin = inp.value.trim();
+                if (pin.length < 4) { showToast("ใส่ PIN ก่อน", true); return; }
+                btn.disabled = true; btn.textContent = "กำลังตรวจสอบ...";
+                fetch(OWNER_URL, {
+                    method: "POST", mode: "cors",
+                    headers: { "Content-Type": "text/plain;charset=utf-8" },
+                    body: JSON.stringify({ type: "hq_auth", pin: pin })
+                })
+                    .then(function (r) { return r.json(); })
+                    .then(function (d) {
+                        if (d && d.ok) {
+                            localStorage.setItem("puff10_hqSession", String(Date.now()));
+                            _hqAuthed = true;
+                            renderHQTab();
+                        } else {
+                            showToast("PIN ไม่ถูกต้อง", true);
+                            inp.value = "";
+                            btn.disabled = false; btn.textContent = "เข้าสู่ระบบ HQ";
+                        }
+                    })
+                    .catch(function () {
+                        showToast("เชื่อมต่อไม่ได้ ลองใหม่", true);
+                        btn.disabled = false; btn.textContent = "เข้าสู่ระบบ HQ";
+                    });
             };
             inp.addEventListener("keyup", function (ev) { if (ev.key === "Enter") btn.onclick(); });
             wrap.appendChild(inp); wrap.appendChild(btn);
