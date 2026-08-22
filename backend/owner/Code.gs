@@ -90,7 +90,7 @@ function doPost(e) {
         sheet.setFrozenRows(1);
       }
       data.items.forEach(function(item) {
-        sheet.appendRow([data.ts, data.branch, data.staff.name, data.staff.nick, data.staff.phone, item.code, item.name, item.pieces, data.price, item.pieces * data.price]);
+        sheet.appendRow([data.ts, data.branch, data.staff.name, data.staff.nick, data.staff.phone, item.code, item.name, item.pieces, (item.price || data.price), item.pieces * (item.price || data.price)]);
       });
       var itemList = data.items.map(function(i){ return "  \u2022 " + i.name + " \u00d7 " + i.pieces + " \u0e0a\u0e34\u0e49\u0e19"; }).join("\n");
       var totalPieces = data.items.reduce(function(s,i){ return s+(i.pieces||0); }, 0);

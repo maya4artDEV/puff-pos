@@ -9,8 +9,8 @@
     <meta http-equiv="Expires" content="0">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="default">
-    <meta name="build-version" content="20260822.2052">
-    <title>Puff Stick POS v12 · 20260822.2052</title>
+    <meta name="build-version" content="20260823.0216">
+    <title>Puff Stick POS v12 · 20260823.0216</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link
@@ -3448,7 +3448,7 @@
             <div id="deviceModeBadge"
                 style="font-size:9px;font-family:var(--f);padding:1px 6px;border-radius:8px;margin-bottom:4px"></div>
             <div id="buildVer" style="font-family:var(--f);font-size:9px;color:var(--muted);padding:0 0 6px;opacity:.6">
-                build 20260822.2052</div>
+                build 20260823.0216</div>
         </div>
 
         <!-- PAGES (role=main wraps all tab pages) -->
@@ -3472,7 +3472,7 @@
                     <h3
                         style="font-family:var(--f);font-size:15px;font-weight:800;color:var(--ink);letter-spacing:-.01em;flex:1">
                         เลือกไส้</h3>
-                    <span style="font-family:var(--f);font-size:11px;color:var(--muted)" id="selCount">0/11 ไส้</span>
+                    <span style="font-family:var(--f);font-size:11px;color:var(--muted)" id="selCount">0/12 ไส้</span>
                 </div>
                 <div class="fill-list" id="sellList"></div>
                 <div class="divider"></div>
@@ -3829,9 +3829,10 @@
             { id: "HTN", code: "FG-HTN", e: "🐟", n: "แฮมทูน่ามันบด", color: "#42A5F5" },
             { id: "CUC", code: "FG-CUC", e: "🍛", n: "ไก่ผัดผงกะหรี่", color: "#FFCC02" },
             { id: "CHO", code: "FG-CHO", e: "🍫", n: "ช็อคโกแลต", color: "#8D6E63" },
+            { id: "DUR", code: "FG-DUR", e: "🍈", n: "ทุเรียน", color: "#C0CA33", price: 45 },
         ];
 
-        var BAR_COLORS = ["#F2B33D", "#94A24F", "#E8A86B", "#E69A1F", "#D9CFE6", "#D26A5C", "#C84238", "#9C8B76", "#4A7FB5", "#C57A3A", "#5C3B22"];
+        var BAR_COLORS = ["#F2B33D", "#94A24F", "#E8A86B", "#E69A1F", "#D9CFE6", "#D26A5C", "#C84238", "#9C8B76", "#4A7FB5", "#C57A3A", "#5C3B22", "#C0CA33"];
 
         // ── State ──
         var currentBranch = "";
@@ -3887,11 +3888,16 @@
         }
         function newState(branch) {
             var st = {};
-            F.forEach(function (f) { st[f.id] = { received_pieces: 0, fry_out: 0, sold: 0 }; });
+            var fp = {};
+            F.forEach(function (f) {
+                st[f.id] = { received_pieces: 0, fry_out: 0, sold: 0 };
+                if (f.price) fp[f.id] = f.price;
+            });
             return {
                 branch: branch, date: todayISO(), stock: st,
                 stock_log: [], sales: [], fry_log: [], withdrawals: [],
                 damaged: {}, free_items: {}, pricePerPiece: 25,
+                fillingPrices: fp,
                 lastStaff: { name: "", nick: "", phone: "" },
                 gift_catalog: [], gift_stock: {}, gift_sales: []
             };
@@ -3938,6 +3944,11 @@
                 state.stock[f.id].received_pieces = frozen;
             });
             if (prev.pricePerPiece) state.pricePerPiece = prev.pricePerPiece;
+            if (prev.fillingPrices) {
+                Object.keys(prev.fillingPrices).forEach(function (k) {
+                    state.fillingPrices[k] = prev.fillingPrices[k];
+                });
+            }
             if (prev.gift_catalog && prev.gift_catalog.length) {
                 state.gift_catalog = JSON.parse(JSON.stringify(prev.gift_catalog));
                 prev.gift_catalog.forEach(function (g) {
@@ -4008,6 +4019,9 @@
             });
             // Migrate price from old v9 default (10) to new v10 default (25)
             if (!S.pricePerPiece || S.pricePerPiece < 20) S.pricePerPiece = 25;
+            // Seed fillingPrices for old states that pre-date DUR (migration guard)
+            if (!S.fillingPrices) S.fillingPrices = {};
+            F.forEach(function (f) { if (f.price && !S.fillingPrices[f.id]) S.fillingPrices[f.id] = f.price; });
             S.gift_catalog.forEach(function (g) {
                 if (!S.gift_stock[g.id]) S.gift_stock[g.id] = { received: 0, sold: 0 };
                 if (!gq[g.id]) gq[g.id] = 0;
@@ -4786,7 +4800,8 @@
             box.appendChild(banner);
         }
 
-        function getPrice() { return S ? (S.pricePerPiece || 25) : 25; }
+        function priceOf(st, id) { if (st && st.fillingPrices && st.fillingPrices[id]) return st.fillingPrices[id]; return (st && st.pricePerPiece) || 25; }
+        function getPrice(id) { return S ? priceOf(S, id) : 25; }
 
         function renderSell() {
             var list = $("sellList"); if (!list) return; clr(list);
@@ -4804,7 +4819,8 @@
                 var iconBox = el("div", { cls: "fcard-icon", css: "background:" + f.color + "2a" });
                 iconBox.textContent = f.e;
                 var info = el("div", { cls: "fcard-info" });
-                info.appendChild(el("div", { cls: "fcard-name", txt: f.n }));
+                var pLabel = getPrice(f.id) !== (S.pricePerPiece || 25) ? " · ฿" + getPrice(f.id) : "";
+                info.appendChild(el("div", { cls: "fcard-name", txt: f.n + pLabel }));
                 info.appendChild(el("div", { cls: "fcard-sub " + statusCls, txt: statusTxt }));
                 var ctrl = el("div", { cls: "qctrl" });
                 var btnM = el("button", { cls: "qbtn minus", txt: "−" });
@@ -4822,7 +4838,7 @@
                 card.appendChild(iconBox); card.appendChild(info); card.appendChild(ctrl);
                 list.appendChild(card);
             });
-            var sc = $("selCount"); if (sc) sc.textContent = selCnt + "/11 ไส้";
+            var sc = $("selCount"); if (sc) sc.textContent = selCnt + "/" + F.length + " ไส้";
         }
         function chg(id, delta) {
             if (!S) return;
@@ -4844,14 +4860,14 @@
             }
         }
         function updBar() {
-            var price = getPrice();
-            var total = 0; F.forEach(function (f) { total += sq[f.id] || 0; });
-            var td = $("totalDisp"); if (td) td.textContent = "฿" + (total * price).toLocaleString();
+            var total = 0; var totalBaht = 0;
+            F.forEach(function (f) { var q = sq[f.id] || 0; total += q; totalBaht += q * getPrice(f.id); });
+            var td = $("totalDisp"); if (td) td.textContent = "฿" + totalBaht.toLocaleString();
             var pd = $("piecesDisp"); if (pd) pd.textContent = total + " ชิ้น";
             var staff = getStaff();
             var ok = total > 0 && currentBranch && staff.name;
             var btn = $("submitBtn"); if (btn) btn.disabled = !ok;
-            var sc = $("selCount"); if (sc) { var s = 0; F.forEach(function (f) { if ((sq[f.id] || 0) > 0) s++; }); sc.textContent = s + "/11 ไส้"; }
+            var sc = $("selCount"); if (sc) { var s = 0; F.forEach(function (f) { if ((sq[f.id] || 0) > 0) s++; }); sc.textContent = s + "/" + F.length + " ไส้"; }
         }
         function getStockTotal() {
             if (!S) return 0;
@@ -4859,25 +4875,24 @@
             return t;
         }
 
-        // submitSell — identical to v9
+        // submitSell — per-item price
         function submitSell() {
             if (getDeviceMode() === "viewer") return;
             if (!S) return;
-            var price = getPrice(); var staff = getStaff();
+            var staff = getStaff();
             var items = [];
-            F.forEach(function (f) { if ((sq[f.id] || 0) > 0) items.push({ id: f.id, name: f.n, code: f.code, pieces: sq[f.id] }); });
+            F.forEach(function (f) { if ((sq[f.id] || 0) > 0) items.push({ id: f.id, name: f.n, code: f.code, pieces: sq[f.id], price: getPrice(f.id) }); });
             if (!items.length || !currentBranch) return;
-            var tp = 0; items.forEach(function (it) { tp += it.pieces; });
-            var ta = tp * price;
+            var tp = 0, ta = 0; items.forEach(function (it) { tp += it.pieces; ta += it.pieces * it.price; });
             var ts = new Date().toLocaleString("th-TH", { timeZone: "Asia/Bangkok" });
             items.forEach(function (it) { S.stock[it.id].sold += it.pieces; });
-            S.sales.push({ ts: ts, location: currentBranch, staff: staff, pricePerPiece: price, items: items, totalPieces: tp, totalAmount: ta });
+            S.sales.push({ ts: ts, location: currentBranch, staff: staff, pricePerPiece: (S.pricePerPiece || 25), items: items, totalPieces: tp, totalAmount: ta });
             S.lastStaff = staff; save();
             var btn = $("submitBtn"); if (btn) { btn.disabled = true; btn.textContent = "⏳..."; }
             showToast("✅ บันทึก " + tp + " ชิ้น = ฿" + ta.toLocaleString());
             fetch(getSheetURL(), {
                 method: "POST", mode: "cors", headers: { "Content-Type": "text/plain;charset=utf-8" },
-                body: JSON.stringify({ type: "sale", ts: ts, branch: currentBranch, staff: staff, price: price, items: items, totalPieces: tp, totalAmount: ta })
+                body: JSON.stringify({ type: "sale", ts: ts, branch: currentBranch, staff: staff, price: (S.pricePerPiece || 25), items: items, totalPieces: tp, totalAmount: ta })
             }).catch(function () { });
             F.forEach(function (f) { sq[f.id] = 0; }); renderSell(); updBar();
             if (btn) { btn.disabled = false; btn.textContent = "✓ บันทึก"; }
@@ -5256,13 +5271,12 @@
         function onPhysCount(id) {
             if (!S) return;
             var inp = $("pc-" + id); if (!inp) return;
-            var price = S.pricePerPiece || 25;
             var fryOut = S.stock[id].fry_out;
             var dmg = S.damaged[id] || 0; var free2 = S.free_items[id] || 0;
-            var hasAny = false; var totalP = 0;
-            F.forEach(function (f) { var i = $("pc-" + f.id); if (i && i.value !== "") { hasAny = true; var sold = Math.max(0, S.stock[f.id].fry_out - (parseInt(i.value) || 0) - (S.damaged[f.id] || 0) - (S.free_items[f.id] || 0)); totalP += sold; } });
+            var hasAny = false; var totalP = 0; var totalBaht = 0;
+            F.forEach(function (f) { var i = $("pc-" + f.id); if (i && i.value !== "") { hasAny = true; var sold = Math.max(0, S.stock[f.id].fry_out - (parseInt(i.value) || 0) - (S.damaged[f.id] || 0) - (S.free_items[f.id] || 0)); totalP += sold; totalBaht += sold * getPrice(f.id); } });
             var pr = $("physResult");
-            if (pr) { pr.style.display = hasAny ? "block" : "none"; if (hasAny) { clr(pr); var resDiv = el("div", { css: "background:#EFF6FF;border:1.5px solid #93C5FD;border-radius:12px;padding:10px 12px" }); resDiv.appendChild(el("div", { cls: "rrow", css: "padding:4px 0" }, [el("span", { cls: "rkey", txt: "รวมขายจริง (นับหน้าตู้)" }), el("span", { cls: "rval", txt: totalP.toLocaleString() + " ชิ้น" })])); resDiv.appendChild(el("div", { cls: "rrow", css: "padding:4px 0;border:none" }, [el("span", { cls: "rkey", txt: "ยอดเงิน" }), el("span", { cls: "rval", css: "color:var(--blue);font-size:15px", txt: "฿" + (totalP * (S.pricePerPiece || 25)).toLocaleString() })])); pr.appendChild(resDiv); } }
+            if (pr) { pr.style.display = hasAny ? "block" : "none"; if (hasAny) { clr(pr); var resDiv = el("div", { css: "background:#EFF6FF;border:1.5px solid #93C5FD;border-radius:12px;padding:10px 12px" }); resDiv.appendChild(el("div", { cls: "rrow", css: "padding:4px 0" }, [el("span", { cls: "rkey", txt: "รวมขายจริง (นับหน้าตู้)" }), el("span", { cls: "rval", txt: totalP.toLocaleString() + " ชิ้น" })])); resDiv.appendChild(el("div", { cls: "rrow", css: "padding:4px 0;border:none" }, [el("span", { cls: "rkey", txt: "ยอดเงิน" }), el("span", { cls: "rval", css: "color:var(--blue);font-size:15px", txt: "฿" + totalBaht.toLocaleString() })])); pr.appendChild(resDiv); } }
             calcClose();
         }
 
@@ -5315,7 +5329,6 @@
 
         function calcClose() {
             if (!S) return;
-            var price = S.pricePerPiece || 25;
             var fl = parseInt(($("changeFloat") || { value: "0" }).value) || 0;
             var ca = parseInt(($("cashAmount") || { value: "0" }).value) || 0;
             var tw = 0; (S.withdrawals || []).forEach(function (w) { tw += w.amount || 0; });
@@ -5595,7 +5608,7 @@
             if (type === "sales" || type === "all") {
                 var rows = [["วันเวลา", "สาขา", "รหัสสินค้า", "ไส้", "จำนวน(ชิ้น)", "ราคา/ชิ้น", "ยอดเงิน(บาท)", "ผู้บันทึก", "เบอร์โทร"]];
                 if (data.sales && data.sales.length) {
-                    data.sales.forEach(function (s) { s.items.forEach(function (it, i) { rows.push([s.ts, s.location, it.code || "", it.name, it.pieces, s.pricePerPiece, i === 0 ? s.totalAmount : "", i === 0 && s.staff ? s.staff.name : "", i === 0 && s.staff ? s.staff.phone : ""]); }); rows.push(["", "", "", "รวม order นี้", "", s.totalPieces, "", s.totalAmount, ""]); });
+                    data.sales.forEach(function (s) { s.items.forEach(function (it, i) { rows.push([s.ts, s.location, it.code || "", it.name, it.pieces, (it.price || s.pricePerPiece), i === 0 ? s.totalAmount : "", i === 0 && s.staff ? s.staff.name : "", i === 0 && s.staff ? s.staff.phone : ""]); }); rows.push(["", "", "", "รวม order นี้", "", s.totalPieces, "", s.totalAmount, ""]); });
                     var tp2 = 0, ta2 = 0; data.sales.forEach(function (s) { tp2 += s.totalPieces; ta2 += s.totalAmount; });
                     rows.push([]); rows.push(["", "", "", "รวมทั้งวัน", "", tp2, "", ta2, ""]);
                 }
@@ -5616,7 +5629,7 @@
                 F.forEach(function (f) {
                     var inp = $("pc-" + f.id); var st = data.stock[f.id] || {};
                     var fryOut = st.fry_out || 0; var dmg = data.damaged && data.damaged[f.id] || 0; var free3 = data.free_items && data.free_items[f.id] || 0;
-                    if (inp && inp.value !== "") { var cnt = parseInt(inp.value) || 0; var sold = Math.max(0, fryOut - cnt - dmg - free3); var money = sold * price; ts2 += sold; tm += money; crows.push([f.code, f.n, fryOut, cnt, dmg, free3, sold, price, money]); }
+                    if (inp && inp.value !== "") { var cnt = parseInt(inp.value) || 0; var sold = Math.max(0, fryOut - cnt - dmg - free3); var rowPrice = priceOf(data, f.id); var money = sold * rowPrice; ts2 += sold; tm += money; crows.push([f.code, f.n, fryOut, cnt, dmg, free3, sold, rowPrice, money]); }
                     else { crows.push([f.code, f.n, fryOut, "(ไม่ได้นับ)", dmg, free3, "", "", ""]); }
                 });
                 crows.push([]); crows.push(["", "", "", "", "", "รวม", ts2, "", tm]);
