@@ -9,8 +9,8 @@
     <meta http-equiv="Expires" content="0">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="default">
-    <meta name="build-version" content="20260825.0001">
-    <title>Puff Stick POS v12 · 20260825.0001</title>
+    <meta name="build-version" content="20260825.0002">
+    <title>Puff Stick POS v12 · 20260825.0002</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link
@@ -3224,7 +3224,8 @@
 
         #toast.show {
             opacity: 1;
-            transform: translateX(-50%) translateY(0)
+            transform: translateX(-50%) translateY(0);
+            z-index: 1001
         }
 
         /* ── Focus visible ── */
@@ -3452,7 +3453,7 @@
             <div id="deviceModeBadge"
                 style="font-size:9px;font-family:var(--f);padding:1px 6px;border-radius:8px;margin-bottom:4px"></div>
             <div id="buildVer" style="font-family:var(--f);font-size:9px;color:var(--muted);padding:0 0 6px;opacity:.6">
-                build 20260825.0001</div>
+                build 20260825.0002</div>
         </div>
 
         <!-- PAGES (role=main wraps all tab pages) -->
