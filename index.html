@@ -9,8 +9,8 @@
     <meta http-equiv="Expires" content="0">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="default">
-    <meta name="build-version" content="20260823.0216">
-    <title>Puff Stick POS v12 · 20260823.0216</title>
+    <meta name="build-version" content="20260825.0001">
+    <title>Puff Stick POS v12 · 20260825.0001</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link
@@ -3419,6 +3419,10 @@
                 <div class="lf-note" id="loginFreeNote">⚠️ รหัสนี้คือกุญแจเก็บข้อมูล —
                     พิมพ์ผิดแม้ตัวเดียวข้อมูลย้อนหลังหาย</div>
             </div>
+            <div class="lf-group">
+                <label class="lf-label" for="loginPinInput">รหัสผ่านสาขา <span style="opacity:.5">(เฉพาะสาขาที่ตั้งรหัส)</span></label>
+                <input class="lf-input" id="loginPinInput" type="password" inputmode="numeric" placeholder="••••" autocomplete="off">
+            </div>
             <button class="login-btn" id="loginBtn" onclick="doLogin()" disabled>เริ่มใช้งาน</button>
             <div class="lf-group" id="deviceModeRow"
                 style="margin-top:10px;background:var(--card-soft);border-radius:14px;padding:10px 14px;display:flex;align-items:center;justify-content:space-between;gap:8px">
@@ -3448,7 +3452,7 @@
             <div id="deviceModeBadge"
                 style="font-size:9px;font-family:var(--f);padding:1px 6px;border-radius:8px;margin-bottom:4px"></div>
             <div id="buildVer" style="font-family:var(--f);font-size:9px;color:var(--muted);padding:0 0 6px;opacity:.6">
-                build 20260823.0216</div>
+                build 20260825.0001</div>
         </div>
 
         <!-- PAGES (role=main wraps all tab pages) -->
@@ -4158,6 +4162,19 @@
                 t = t.parentNode;
             }
         }
+        function getBranchAuth() {
+            try { return JSON.parse(localStorage.getItem("puff10_branchAuth") || "null"); } catch (e) { return null; }
+        }
+        function hasValidBranchSession(b) {
+            var a = getBranchAuth();
+            return !!(a && a.branch === b);
+        }
+        function setBranchAuth(b) {
+            localStorage.setItem("puff10_branchAuth", JSON.stringify({ branch: b, ts: Date.now() }));
+        }
+        function clearBranchAuth() {
+            localStorage.removeItem("puff10_branchAuth");
+        }
         function doLogin() {
             var name = ($("loginName") || { value: "" }).value.trim();
             var nick = ($("loginNick") || { value: "" }).value.trim();
@@ -4166,26 +4183,50 @@
             localStorage.setItem("puff10_loginStaff", JSON.stringify({ name: name, nick: nick, phone: phone }));
             // Show loading, prefetch cloud state, then complete login
             var btn = $("loginBtn"); if (btn) { btn.disabled = true; btn.textContent = "กำลังโหลด..."; }
-            prefetchCloudState(_loginBranch, function () {
-                if (btn) { btn.disabled = false; btn.textContent = "เริ่มใช้งาน"; }
-                setBranch(_loginBranch);
-                renderDeviceModeBadge();    // Task 1: show mode badge in header
-                $("loginScreen").style.display = "none";
-                $("mainApp").style.display = "block";
-                requestAnimationFrame(function () {
-                    go("home");
+            function finishLogin() {
+                prefetchCloudState(_loginBranch, function () {
+                    if (btn) { btn.disabled = false; btn.textContent = "เริ่มใช้งาน"; }
+                    setBranch(_loginBranch);
+                    renderDeviceModeBadge();    // Task 1: show mode badge in header
+                    $("loginScreen").style.display = "none";
+                    $("mainApp").style.display = "block";
                     requestAnimationFrame(function () {
-                        var cx = getNavCx(TABS.indexOf(currentTab));
-                        _navToCx = _navFromCx = cx;
-                        var p = $("navPath");
-                        if (p) p.setAttribute("d", buildNavPath(cx));
+                        go("home");
+                        requestAnimationFrame(function () {
+                            var cx = getNavCx(TABS.indexOf(currentTab));
+                            _navToCx = _navFromCx = cx;
+                            var p = $("navPath");
+                            if (p) p.setAttribute("d", buildNavPath(cx));
+                        });
                     });
                 });
-            });
+            }
+            if (hasValidBranchSession(_loginBranch)) { finishLogin(); return; }
+            var pin = ($("loginPinInput") || { value: "" }).value.trim();
+            if (btn) btn.textContent = "กำลังตรวจสอบรหัส...";
+            fetch(getSyncURL(_loginBranch), {
+                method: "POST", mode: "cors",
+                headers: { "Content-Type": "text/plain;charset=utf-8" },
+                body: JSON.stringify({ type: "branch_auth", branch: _loginBranch, pin: pin })
+            })
+                .then(function (r) { return r.json(); })
+                .then(function (d) {
+                    if (d && d.ok) { setBranchAuth(_loginBranch); finishLogin(); }
+                    else {
+                        showToast("รหัสผ่านสาขาไม่ถูกต้อง", true);
+                        var pI = $("loginPinInput"); if (pI) pI.value = "";
+                        if (btn) { btn.disabled = false; btn.textContent = "เริ่มใช้งาน"; }
+                    }
+                })
+                .catch(function () {
+                    showToast("เชื่อมต่อไม่ได้ ลองใหม่", true);
+                    if (btn) { btn.disabled = false; btn.textContent = "เริ่มใช้งาน"; }
+                });
         }
         function doLogout() {
             stopHQPolling();
             pauseTimer();
+            clearBranchAuth();
             $("mainApp").style.display = "none";
             $("loginScreen").style.display = "flex";
             var lastStaff = getStaff();
