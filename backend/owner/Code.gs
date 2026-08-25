@@ -50,6 +50,18 @@ function doPost(e) {
       return ContentService.createTextOutput(JSON.stringify({ok:okHq})).setMimeType(ContentService.MimeType.JSON);
     }
 
+    // ── Branch auth: PIN ต่อสาขา จาก Script Property BRANCH_PINS (JSON, ไม่อยู่ใน source) ──
+    if (data.type === "branch_auth") {
+      var bPins = {};
+      try { bPins = JSON.parse(PropertiesService.getScriptProperties().getProperty("BRANCH_PINS") || "{}"); } catch (e2) { bPins = {}; }
+      var brCode = String(data.branch || "");
+      if (!Object.prototype.hasOwnProperty.call(bPins, brCode)) {
+        return ContentService.createTextOutput(JSON.stringify({ok:true, open:true})).setMimeType(ContentService.MimeType.JSON);
+      }
+      var okBr = (String(data.pin) === String(bPins[brCode]));
+      return ContentService.createTextOutput(JSON.stringify({ok:okBr})).setMimeType(ContentService.MimeType.JSON);
+    }
+
     const ss   = SpreadsheetApp.openById(SHEET_ID);
 
     // ── Cloud State: บันทึก state ต่อสาขาต่อวัน (Plain Upsert) ──

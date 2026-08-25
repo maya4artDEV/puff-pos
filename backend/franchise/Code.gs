@@ -50,6 +50,18 @@ function doPost(e) {
       return ContentService.createTextOutput(JSON.stringify({ok:okHq})).setMimeType(ContentService.MimeType.JSON);
     }
 
+    // ── Branch auth: PIN ต่อสาขา จาก Script Property BRANCH_PINS (JSON, ไม่อยู่ใน source) ──
+    if (data.type === "branch_auth") {
+      var bPins = {};
+      try { bPins = JSON.parse(PropertiesService.getScriptProperties().getProperty("BRANCH_PINS") || "{}"); } catch (e2) { bPins = {}; }
+      var brCode = String(data.branch || "");
+      if (!Object.prototype.hasOwnProperty.call(bPins, brCode)) {
+        return ContentService.createTextOutput(JSON.stringify({ok:true, open:true})).setMimeType(ContentService.MimeType.JSON);
+      }
+      var okBr = (String(data.pin) === String(bPins[brCode]));
+      return ContentService.createTextOutput(JSON.stringify({ok:okBr})).setMimeType(ContentService.MimeType.JSON);
+    }
+
     const ss   = SpreadsheetApp.openById(SHEET_ID);
 
     // ── Cloud State: บันทึก state ต่อสาขาต่อวัน (Plain Upsert) ──
@@ -126,6 +138,26 @@ function doPost(e) {
     }
 
     // ── ขายของฝาก ──
+    if (data.type === "gift_sale") {
+      var sheet = ss.getSheetByName("GiftSales") || ss.insertSheet("GiftSales");
+      if (sheet.getLastRow() === 0) {
+        sheet.appendRow(["\u0e40\u0e27\u0e25\u0e32","\u0e2a\u0e32\u0e02\u0e32","\u0e0a\u0e37\u0e48\u0e2d\u0e2a\u0e34\u0e19\u0e04\u0e49\u0e32","\u0e08\u0e33\u0e19\u0e27\u0e19","\u0e23\u0e32\u0e04\u0e32/\u0e0a\u0e34\u0e49\u0e19","\u0e22\u0e2d\u0e14\u0e40\u0e07\u0e34\u0e19","\u0e1c\u0e39\u0e49\u0e1a\u0e31\u0e19\u0e17\u0e36\u0e01"]);
+        sheet.getRange(1,1,1,7).setFontWeight("bold").setBackground("#0F4C36").setFontColor("#fff");
+        sheet.setFrozenRows(1);
+      }
+      data.items.forEach(function(it){ sheet.appendRow([data.ts, data.branch, it.name, it.qty, it.price, it.total, data.staff.name]); });
+      var giftList = data.items.map(function(i){ return "  \u2022 " + i.name + " \u00d7 " + i.qty + " \u0e0a\u0e34\u0e49\u0e19"; }).join("\n");
+      var giftTotal = data.items.reduce(function(s,i){ return s+(i.qty||0); }, 0);
+      notifyTelegram(
+        "\ud83c\udf81 \u0e02\u0e32\u0e22\u0e02\u0e2d\u0e07\u0e1d\u0e32\u0e01\n\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n" +
+        "\ud83d\udccd \u0e2a\u0e32\u0e02\u0e32: " + data.branch + "\n" +
+        "\ud83d\udc64 \u0e1e\u0e19\u0e31\u0e01\u0e07\u0e32\u0e19: " + data.staff.name + "\n" +
+        "\ud83d\udce6 \u0e23\u0e32\u0e22\u0e01\u0e32\u0e23:\n" + giftList + "\n" +
+        "\ud83d\udcca \u0e23\u0e27\u0e21: " + giftTotal + " \u0e0a\u0e34\u0e49\u0e19\n" +
+        "\ud83d\udcb0 \u0e22\u0e2d\u0e14: \u0e3f" + Number(data.grandTotal).toLocaleString("th-TH") + "\n" +
+        "\ud83d\udd50 \u0e40\u0e27\u0e25\u0e32: " + data.ts
+      );
+    }
 
     // ── Delivery Sales ──
     if (data.type === "delivery_sale") {
