@@ -9,8 +9,8 @@
     <meta http-equiv="Expires" content="0">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="default">
-    <meta name="build-version" content="20260825.0007">
-    <title>Puff Stick POS v12 · 20260825.0007</title>
+    <meta name="build-version" content="20260918.0008">
+    <title>Puff Stick POS v12 · 20260918.0008</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link
@@ -3499,7 +3499,7 @@
             <div id="deviceModeBadge"
                 style="font-size:9px;font-family:var(--f);padding:1px 6px;border-radius:8px;margin-bottom:4px"></div>
             <div id="buildVer" style="font-family:var(--f);font-size:9px;color:var(--muted);padding:0 0 6px;opacity:.6">
-                build 20260825.0007</div>
+                build 20260918.0008</div>
         </div>
 
         <!-- PAGES (role=main wraps all tab pages) -->
@@ -4266,6 +4266,32 @@
                 box.appendChild(chip);
             });
         }
+        function fetchJSON(url, opts, timeoutMs) {
+            return new Promise(function (resolve, reject) {
+                var ctrl = (typeof AbortController !== "undefined") ? new AbortController() : null;
+                var o = opts || {};
+                if (ctrl) o.signal = ctrl.signal;
+                var timedOut = false;
+                var timer = setTimeout(function () {
+                    timedOut = true;
+                    if (ctrl) { try { ctrl.abort(); } catch (e) { } }
+                    reject(new Error("timeout"));
+                }, timeoutMs || 12000);
+                fetch(url, o).then(function (r) {
+                    return r.text();
+                }).then(function (t) {
+                    clearTimeout(timer);
+                    if (timedOut) return;
+                    var data;
+                    try { data = JSON.parse(t); }
+                    catch (e) { reject(new Error("nonjson")); return; }
+                    resolve(data);
+                }).catch(function (e) {
+                    clearTimeout(timer);
+                    if (!timedOut) reject(e);
+                });
+            });
+        }
         function doLogin() {
             var name = ($("loginName") || { value: "" }).value.trim();
             var nick = ($("loginNick") || { value: "" }).value.trim();
@@ -4275,44 +4301,56 @@
             // Show loading, prefetch cloud state, then complete login
             var btn = $("loginBtn"); if (btn) { btn.disabled = true; btn.textContent = "กำลังโหลด..."; }
             function finishLogin() {
-                prefetchCloudState(_loginBranch, function () {
-                    if (btn) { btn.disabled = false; btn.textContent = "เริ่มใช้งาน"; }
-                    setBranch(_loginBranch);
-                    renderDeviceModeBadge();    // Task 1: show mode badge in header
-                    $("loginScreen").style.display = "none";
-                    $("mainApp").style.display = "block";
+                if (btn) { btn.disabled = false; btn.textContent = "เริ่มใช้งาน"; }
+                setBranch(_loginBranch);
+                renderDeviceModeBadge();    // Task 1: show mode badge in header
+                $("loginScreen").style.display = "none";
+                $("mainApp").style.display = "block";
+                requestAnimationFrame(function () {
+                    go("home");
                     requestAnimationFrame(function () {
-                        go("home");
-                        requestAnimationFrame(function () {
-                            var cx = getNavCx(TABS.indexOf(currentTab));
-                            _navToCx = _navFromCx = cx;
-                            var p = $("navPath");
-                            if (p) p.setAttribute("d", buildNavPath(cx));
-                        });
+                        var cx = getNavCx(TABS.indexOf(currentTab));
+                        _navToCx = _navFromCx = cx;
+                        var p = $("navPath");
+                        if (p) p.setAttribute("d", buildNavPath(cx));
                     });
+                });
+                // Non-blocking cloud prefetch: app is usable on local state now;
+                // recover/refresh in background, then re-render current tab (mirror refreshFromCloud).
+                prefetchCloudState(_loginBranch, function () {
+                    if (!currentBranch) return;
+                    S = loadBranch(currentBranch);
+                    if (currentTab === "home") { renderHome(); }
+                    else if (currentTab === "sell") { renderSell(); renderDeliveryInline(); renderDeliveryTodaySummary(); renderGiftSell(); updBar(); }
+                    else if (currentTab === "stock") { renderStockTop3(); renderStackChart(); renderStockPage(); }
+                    updateSyncIcon();
                 });
             }
             if (hasValidBranchSession(_loginBranch)) { finishLogin(); return; }
             var pin = ($("loginPinInput") || { value: "" }).value.trim();
             if (btn) btn.textContent = "กำลังตรวจสอบรหัส...";
-            fetch(getSyncURL(_loginBranch), {
-                method: "POST", mode: "cors",
-                headers: { "Content-Type": "text/plain;charset=utf-8" },
-                body: JSON.stringify({ type: "branch_auth", branch: _loginBranch, pin: pin })
-            })
-                .then(function (r) { return r.json(); })
-                .then(function (d) {
-                    if (d && d.ok) { setBranchAuth(_loginBranch); pushRecentBranch(_loginBranch); finishLogin(); }
-                    else {
-                        showToast("รหัสผ่านสาขาไม่ถูกต้อง", true);
-                        var pI = $("loginPinInput"); if (pI) pI.value = "";
-                        if (btn) { btn.disabled = false; btn.textContent = "เริ่มใช้งาน"; }
-                    }
-                })
-                .catch(function () {
-                    showToast("เชื่อมต่อไม่ได้ ลองใหม่", true);
+            function onAuthOk(d) {
+                if (d && d.ok) { setBranchAuth(_loginBranch); pushRecentBranch(_loginBranch); finishLogin(); }
+                else {
+                    showToast("รหัสผ่านสาขาไม่ถูกต้อง", true);
+                    var pI = $("loginPinInput"); if (pI) pI.value = "";
                     if (btn) { btn.disabled = false; btn.textContent = "เริ่มใช้งาน"; }
-                });
+                }
+            }
+            function authAttempt(isRetry) {
+                fetchJSON(getSyncURL(_loginBranch), {
+                    method: "POST", mode: "cors",
+                    headers: { "Content-Type": "text/plain;charset=utf-8" },
+                    body: JSON.stringify({ type: "branch_auth", branch: _loginBranch, pin: pin })
+                }, 12000)
+                    .then(onAuthOk)
+                    .catch(function () {
+                        if (!isRetry) { if (btn) btn.textContent = "เชื่อมต่อช้า ลองอีกครั้ง..."; authAttempt(true); return; }
+                        showToast("เชื่อมต่อช้า ลองใหม่อีกครั้ง", true);
+                        if (btn) { btn.disabled = false; btn.textContent = "เริ่มใช้งาน"; }
+                    });
+            }
+            authAttempt(false);
         }
         function doLogout() {
             stopHQPolling();
