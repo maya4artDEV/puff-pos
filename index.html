@@ -9,8 +9,8 @@
     <meta http-equiv="Expires" content="0">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="default">
-    <meta name="build-version" content="20260918.0008">
-    <title>Puff Stick POS v12 · 20260918.0008</title>
+    <meta name="build-version" content="20260919.0009">
+    <title>Puff Stick POS v12 · 20260919.0009</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link
@@ -3499,7 +3499,7 @@
             <div id="deviceModeBadge"
                 style="font-size:9px;font-family:var(--f);padding:1px 6px;border-radius:8px;margin-bottom:4px"></div>
             <div id="buildVer" style="font-family:var(--f);font-size:9px;color:var(--muted);padding:0 0 6px;opacity:.6">
-                build 20260918.0008</div>
+                build 20260919.0009</div>
         </div>
 
         <!-- PAGES (role=main wraps all tab pages) -->
@@ -5806,7 +5806,7 @@
             ];
             return { headerRows: headerRows, locName: locName, price: price, data: data, todayFull: todayFull };
         }
-        function doExport(type, data, dateStr) {
+        function doExport(type, data, dateStr, deliver) {
             var wb = XLSX.utils.book_new();
             var info = buildExcelData(data, dateStr);
             var hRows = info.headerRows; var price = info.price; var locName = info.locName;
@@ -5901,7 +5901,12 @@
             }
             var safeDate = (dateStr || todayISO()).replace(/\//g, "-");
             var safeLoc = info.locName.replace(/[^a-zA-Z0-9ก-๙]/g, "_");
-            XLSX.writeFile(wb, "PuffStick_" + safeLoc + "_" + safeDate + "_" + type + ".xlsx");
+            var fname = "PuffStick_" + safeLoc + "_" + safeDate + "_" + type + ".xlsx";
+            if (typeof deliver === "function") {
+                deliver(XLSX.write(wb, { bookType: "xlsx", type: "base64" }), fname);
+                return;
+            }
+            XLSX.writeFile(wb, fname);
             showToast("📊 Export สำเร็จ");
         }
         var XLSX_CDNS = [
@@ -5966,11 +5971,32 @@
             );
         }
         function sendEmail() {
-            var today = todayISO();
-            var subject = encodeURIComponent("รายงานยอดขาย PUFF STICK คุณต๋อย สาขา " + (currentBranch || "") + " วันที่ " + today);
-            var body = encodeURIComponent("เรียนคุณต๋อย\n\nแนบรายงานยอดขายประจำวัน " + today + " ไฟล์แนบค่ะ/ครับ\n\nขอบคุณครับ/ค่ะ");
-            window.location.href = "mailto:" + EMAIL_TO + "?subject=" + subject + "&body=" + body;
-            showToast("📧 กรุณาแนบไฟล์ Excel");
+            if (!S) return;
+            var send = function () {
+                doExport("all", S, null, function (b64, fname) {
+                    showToast("📧 กำลังส่งรายงาน...");
+                    fetchJSON(getSheetURL(), {
+                        method: "POST", mode: "cors",
+                        headers: { "Content-Type": "text/plain;charset=utf-8" },
+                        body: JSON.stringify({
+                            type: "email_report",
+                            to: EMAIL_TO,
+                            branch: currentBranch,
+                            date: todayISO(),
+                            filename: fname,
+                            xlsxBase64: b64
+                        })
+                    }, 30000).then(function (r) {
+                        if (r && r.ok) { showToast("✅ ส่งรายงานเข้าอีเมลแล้ว"); }
+                        else { showToast("❌ ส่งเมลไม่สำเร็จ: " + ((r && r.error) || "unknown"), true); }
+                    }).catch(function (e) {
+                        showToast("❌ ส่งเมลไม่สำเร็จ (" + (e && e.message ? e.message : e) + ") ลองใหม่อีกครั้ง", true);
+                    });
+                });
+            };
+            if (window.XLSX) { send(); return; }
+            showToast("กำลังโหลด Excel...");
+            loadXLSX(send, function (msg) { showToast(msg, true); });
         }
 
         // ═══════════════════════════════════
