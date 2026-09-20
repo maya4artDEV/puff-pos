@@ -9,8 +9,8 @@
     <meta http-equiv="Expires" content="0">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="default">
-    <meta name="build-version" content="20260919.0009">
-    <title>Puff Stick POS v12 · 20260919.0009</title>
+    <meta name="build-version" content="20260920.0010">
+    <title>Puff Stick POS v12 · 20260920.0010</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link
@@ -3499,7 +3499,7 @@
             <div id="deviceModeBadge"
                 style="font-size:9px;font-family:var(--f);padding:1px 6px;border-radius:8px;margin-bottom:4px"></div>
             <div id="buildVer" style="font-family:var(--f);font-size:9px;color:var(--muted);padding:0 0 6px;opacity:.6">
-                build 20260919.0009</div>
+                build 20260920.0010</div>
         </div>
 
         <!-- PAGES (role=main wraps all tab pages) -->
@@ -3892,6 +3892,7 @@
         var gq = {};
         var _loginBranch = "";
         var _selectedDateOffset = 0;
+        var _closingPastDay = false;   // Issue3: true while nudge-driven back-date close is active
 
         // ── Backend Routing (identical to v9) ──
         function getSheetURL() {
@@ -4047,9 +4048,55 @@
             if (!currentBranch) return;
             S.lastSaved = Date.now();
             var payload = JSON.stringify(S);
-            localStorage.setItem(stateKey(currentBranch), payload);
+            localStorage.setItem(stateKey(currentBranch, S.date), payload);
             localStorage.setItem("puff8_lastBranch", currentBranch);
-            queueCloudSync(currentBranch, todayISO(), S);
+            queueCloudSync(currentBranch, S.date, S);
+        }
+        // ── Issue3: business-day late-close (Rec C nudge) ──
+        function hasDayActivity(st) {
+            if (!st) return false;
+            return !!((st.sales && st.sales.length) || (st.fry_log && st.fry_log.length) ||
+                (st.stock_log && st.stock_log.length) || (st.gift_sales && st.gift_sales.length) ||
+                (st.delivery_sales && st.delivery_sales.length) || (st.withdrawals && st.withdrawals.length));
+        }
+        function prevDateStr() {
+            var d = new Date(); d.setDate(d.getDate() - 1);
+            return d.toLocaleDateString("th-TH", { timeZone: "Asia/Bangkok", year: "numeric", month: "2-digit", day: "2-digit" });
+        }
+        function maybeNudgeCloseYesterday() {
+            if (!currentBranch) return;
+            var yDate = prevDateStr();
+            var yKey = stateKey(currentBranch, yDate);
+            var dismissKey = "puff7_closeNudge_" + safeBranch(currentBranch) + "_" + normDateStr(yDate);
+            if (localStorage.getItem(dismissKey)) return;
+            var raw = localStorage.getItem(yKey);
+            if (!raw) return;
+            var yState; try { yState = JSON.parse(raw); } catch (e) { return; }
+            if (!yState || yState.is_closed === true) return;
+            if (!hasDayActivity(yState)) return;
+            if (confirm("ยังไม่ได้ปิดวันเมื่อวาน (" + yDate + ")\nปิดยอดตอนนี้ไหม?")) {
+                enterPastDayClose(yDate);
+            } else {
+                try { localStorage.setItem(dismissKey, "1"); } catch (e) { }
+            }
+        }
+        function enterPastDayClose(dateStr) {
+            _closingPastDay = true;
+            S = loadBranch(currentBranch, dateStr);
+            go("close");
+            showToast("กำลังปิดยอดวันที่ " + dateStr);
+        }
+        function restoreToday() {
+            _closingPastDay = false;
+            var tKey = stateKey(currentBranch, todayISO());
+            var tRaw = localStorage.getItem(tKey);
+            var tState = null; try { tState = tRaw ? JSON.parse(tRaw) : null; } catch (e) { tState = null; }
+            if (!tState || !hasDayActivity(tState)) {
+                var fresh = newStateWithCarryOver(currentBranch);
+                try { localStorage.setItem(tKey, JSON.stringify(fresh)); } catch (e) { }
+            }
+            S = loadBranch(currentBranch);
+            go("home");
         }
         function setBranch(branch) {
             currentBranch = branch;
@@ -4315,10 +4362,12 @@
                         if (p) p.setAttribute("d", buildNavPath(cx));
                     });
                 });
+                maybeNudgeCloseYesterday();   // Issue3: prompt to close an unclosed yesterday
                 // Non-blocking cloud prefetch: app is usable on local state now;
                 // recover/refresh in background, then re-render current tab (mirror refreshFromCloud).
                 prefetchCloudState(_loginBranch, function () {
                     if (!currentBranch) return;
+                    if (_closingPastDay) { updateSyncIcon(); return; }   // Issue3: don't clobber back-date close
                     S = loadBranch(currentBranch);
                     if (currentTab === "home") { renderHome(); }
                     else if (currentTab === "sell") { renderSell(); renderDeliveryInline(); renderDeliveryTodaySummary(); renderGiftSell(); updBar(); }
@@ -4500,6 +4549,7 @@
                         if (offset === 0) {
                             // Click today: reset to live S
                             _selectedDateOffset = 0;
+                            _closingPastDay = false;   // Issue3: leaving back-date close
                             S = loadBranch(currentBranch);
                             renderHome();
                             return;
@@ -4919,7 +4969,7 @@
                         var st = S.stock[f.id] || {};
                         lines.push(f.n + ": recv=" + (st.received_pieces || 0) + " fry=" + (st.fry_out || 0) + " sold=" + (st.sold || 0));
                     });
-                    var pk = stateKey(currentBranch);
+                    var pk = stateKey(currentBranch, S.date);
                     lines.push("\nKey: " + pk);
                     alert(lines.join("\n"));
                 }, 700);
@@ -5633,6 +5683,7 @@
             save();
             renderCloseDayStatus();
             showToast("✓ ปิดวันเรียบร้อย");
+            if (_closingPastDay) restoreToday();   // Issue3: return to today after late close
         }
 
         function renderHist() {
