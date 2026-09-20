@@ -16,3 +16,10 @@ tmp/
 *.log
 node_modules/
 package-lock.json
+_archive/
+*.bak
+
+# backend secrets - paste into Apps Script editor only
+backend/
+*.gs
+*.bak
