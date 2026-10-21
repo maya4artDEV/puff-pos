@@ -9,8 +9,8 @@
     <meta http-equiv="Expires" content="0">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="default">
-    <meta name="build-version" content="20261021.0011">
-    <title>Puff Stick POS v12 · 20261021.0011</title>
+    <meta name="build-version" content="20261022.0012">
+    <title>Puff Stick POS v12 · 20261022.0012</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link
@@ -3494,7 +3494,7 @@
             <div id="deviceModeBadge"
                 style="font-size:9px;font-family:var(--f);padding:1px 6px;border-radius:8px;margin-bottom:4px"></div>
             <div id="buildVer" style="font-family:var(--f);font-size:9px;color:var(--muted);padding:0 0 6px;opacity:.6">
-                build 20261021.0011</div>
+                build 20261022.0012</div>
         </div>
 
         <!-- PAGES (role=main wraps all tab pages) -->
@@ -3532,7 +3532,7 @@
                 <div class="tip" style="background:var(--sage);border-color:#A3D977;color:var(--cocoa)">สินค้าของฝากสาขา
                     — กด + เพิ่มรายการ</div>
                 <div id="giftSellList"></div>
-                <button class="abtn-outline" onclick="showAddGiftModal()" style="margin-bottom:4px">+
+                <button class="abtn-outline" id="btnAddGift" onclick="showAddGiftModal()" style="margin-bottom:4px">+
                     เพิ่มรายการของฝาก</button>
                 <div id="giftSellResult" style="display:none;margin-bottom:4px"></div>
                 <button class="abtn grn" id="submitGiftBtn" onclick="submitGiftSale()"
@@ -3594,7 +3594,7 @@
                         </div>
                     </div>
                 </div>
-                <button class="abtn-outline" onclick="showStockCorrect()">✏️ บันทึกรายการปรับปรุง</button>
+                <button class="abtn-outline" id="btnStockCorrect" onclick="showStockCorrect()">✏️ บันทึกรายการปรับปรุง</button>
                 <div class="divider"></div>
                 <span class="sec-lbl">📋 สรุปสต๊อกวันนี้</span>
                 <div id="stockSummary"></div>
@@ -3667,8 +3667,8 @@
                 <div id="closeResult"></div>
                 <div id="closeDayStatus"></div>
                 <div class="divider"></div>
-                <span class="sec-lbl">📊 Export รายงาน</span>
-                <div class="export-grid">
+                <span class="sec-lbl" id="exportLbl">📊 Export รายงาน</span>
+                <div class="export-grid" id="exportBlock">
                     <button class="eb sell" onclick="exportExcel('sales')">
                         <div class="eb-icon">🧾</div>
                         <div class="eb-title">ยอดขาย</div>
@@ -3692,6 +3692,7 @@
                 </div>
                 <button class="abtn" style="background:var(--blue);color:#fff" onclick="sendEmail()">📧 ส่งรายงานทาง
                     Email</button>
+                <div id="ownerSettings"></div>
             </div>
 
             <!-- HISTORY -->
@@ -3851,7 +3852,6 @@
         function $(id) { return document.getElementById(id); }
 
         // ── Config (identical to v9) ──
-        var EMAIL_TO = "92foodlimited@gmail.com";
         var OWNER_URL = "https://script.google.com/macros/s/AKfycbxMbd0YD2KpUjk0DMYsLdVxGEj1BeCJchv12QmKdN454kMF5BCsIpnsipoTaAWQMOoD/exec";
         var FRANCHISE_URL = "https://script.google.com/macros/s/AKfycbzeHh3ouj782znH-gQemvoH733fQjrQZPWFiesTZU3Hzum4coiEWb2ZAwoC1kPPFM-NDQ/exec";
 
@@ -4262,6 +4262,45 @@
                 t = t.parentNode;
             }
         }
+        // ── Session tokens (issued by the server at login, one per branch) ──
+        function getTokens() {
+            try { return JSON.parse(localStorage.getItem("puff10_tokens") || "{}") || {}; } catch (e) { return {}; }
+        }
+        function saveTokens(t) {
+            try { localStorage.setItem("puff10_tokens", JSON.stringify(t)); } catch (e) { showToast("⚠️ พื้นที่เครื่องเต็ม — บันทึกการเข้าสู่ระบบไม่ได้", true); }
+        }
+        function setToken(b, token, role) {
+            var t = getTokens();
+            t[b] = { token: token, role: (role === "staff" ? "staff" : "owner"), ts: Date.now() };
+            saveTokens(t);
+        }
+        function clearToken(b) { var t = getTokens(); delete t[b]; saveTokens(t); }
+        function getTokenFor(b) { var t = getTokens()[b]; return (t && t.token) ? t.token : ""; }
+        function getRole() { var t = getTokens()[currentBranch]; return (t && t.role === "staff") ? "staff" : "owner"; }
+        // Staff = front-of-shop only. Everything that rewrites numbers, prices or history is owner-only.
+        var STAFF_BLOCKED = { price: 1, stockCorrect: 1, giftCatalog: 1, hist: 1, export: 1 };
+        function canDo(action) { return !(getRole() === "staff" && STAFF_BLOCKED[action]); }
+        function denyStaff(action) {
+            if (canDo(action)) return false;
+            showToast("🔒 เฉพาะเจ้าของร้าน", true);
+            return true;
+        }
+        function applyRoleUI() {
+            var hide = getRole() === "staff";
+            ["btnAddGift", "btnStockCorrect", "exportLbl", "exportBlock"].forEach(function (id) {
+                var x = $(id); if (x) x.style.display = hide ? "none" : "";
+            });
+        }
+        // Server rejected our token (expired, PIN changed, or wrong branch) — data stays queued.
+        function handleAuthFail(b) {
+            clearToken(b);
+            if (b === currentBranch) {
+                showToast("🔒 สิทธิ์การเข้าใช้หมดอายุ — กรุณาเข้าสู่ระบบใหม่", true);
+                doLogout();
+            } else {
+                showToast("🔒 มีข้อมูลสาขา " + b + " ค้างส่ง — เข้าสู่ระบบสาขานั้นเพื่อส่ง", true);
+            }
+        }
         function getBranchAuth() {
             try { return JSON.parse(localStorage.getItem("puff10_branchAuth") || "null"); } catch (e) { return null; }
         }
@@ -4355,6 +4394,8 @@
             function finishLogin() {
                 if (btn) { btn.disabled = false; btn.textContent = "เริ่มใช้งาน"; }
                 setBranch(_loginBranch);
+                applyRoleUI();
+                if (getDeviceMode() !== "viewer") flushSyncQueue();   // send anything queued before re-login
                 renderDeviceModeBadge();    // Task 1: show mode badge in header
                 $("loginScreen").style.display = "none";
                 $("mainApp").style.display = "block";
@@ -4380,13 +4421,13 @@
                     updateSyncIcon();
                 });
             }
-            if (hasValidBranchSession(_loginBranch)) { finishLogin(); return; }
+            if (hasValidBranchSession(_loginBranch) && getTokenFor(_loginBranch)) { finishLogin(); return; }
             var pin = ($("loginPinInput") || { value: "" }).value.trim();
             if (btn) btn.textContent = "กำลังตรวจสอบรหัส...";
             function onAuthOk(d) {
-                if (d && d.ok) { setBranchAuth(_loginBranch); pushRecentBranch(_loginBranch); finishLogin(); }
+                if (d && d.ok) { if (d.token) setToken(_loginBranch, d.token, d.role); setBranchAuth(_loginBranch); pushRecentBranch(_loginBranch); finishLogin(); }
                 else {
-                    showToast("รหัสผ่านสาขาไม่ถูกต้อง", true);
+                    showToast((d && d.error === "locked_out") ? "ใส่รหัสผิดหลายครั้ง — รอ 10 นาที" : (pin ? "รหัสผ่านสาขาไม่ถูกต้อง" : "สาขานี้ต้องใส่รหัสผ่าน"), true);
                     var pI = $("loginPinInput"); if (pI) pI.value = "";
                     if (btn) { btn.disabled = false; btn.textContent = "เริ่มใช้งาน"; }
                 }
@@ -4492,6 +4533,7 @@
         function go(tab) {
             if (currentTab === "hq" && tab !== "hq") { stopHQPolling(); }
             if (tab === "hq" && getDeviceMode() !== "viewer") { showToast("หน้านี้สำหรับ HQ เท่านั้น", true); return; }
+            if (tab === "hist" && denyStaff("hist")) return;
             if (!currentBranch && tab !== "home") { showToast("กรุณา login ก่อนใช้งาน", true); return; }
             var prevIdx = TABS.indexOf(currentTab);   // capture BEFORE updating
             currentTab = tab;
@@ -4515,7 +4557,7 @@
             if (tab === "sell") { renderStaffChip(); renderPriceBanner(); renderSell(); renderDeliveryInline(); renderDeliveryTodaySummary(); renderGiftSell(); updBar(); }
             if (tab === "fry") { renderFryHero(); renderFryChart(); renderFryPage(); }
             if (tab === "stock") { renderStockTop3(); renderStackChart(); renderStockPage(); }
-            if (tab === "close") { renderClose(); renderCloseDayStatus(); }
+            if (tab === "close") { renderClose(); renderCloseDayStatus(); renderOwnerSettings(); }
             if (tab === "hist") { renderHist(); }
             if (tab === "hq") { renderHQTab(); }
         }
@@ -4560,6 +4602,7 @@
                             return;
                         }
                         // Click past date: render hero from loaded state
+                        if (denyStaff("hist")) return;
                         _selectedDateOffset = offset;
                         var loaded = loadBranch(currentBranch, dateStr);
                         renderHeroForState(loaded, _DAYS[dayIdx] + " " + dayNum + " " + monthName);
@@ -4864,7 +4907,7 @@
                 method: "POST", mode: "cors",
                 headers: { "Content-Type": "text/plain;charset=utf-8" },
                 body: JSON.stringify({
-                    type: "delivery_sale", ts: ts, branch: currentBranch,
+                    type: "delivery_sale", ts: ts, branch: currentBranch, token: getTokenFor(currentBranch),
                     app: _dlvApp, gross: gross, net: net,
                     totalPieces: totalPieces, items: items,
                     note: note, image: _dlvImage,
@@ -5022,7 +5065,7 @@
                     renderPriceBanner(); updBar();
                 }
             };
-            banner.appendChild(circle); banner.appendChild(info); banner.appendChild(editBtn);
+            banner.appendChild(circle); banner.appendChild(info); if (canDo("price")) banner.appendChild(editBtn);
             box.appendChild(banner);
         }
 
@@ -5118,7 +5161,7 @@
             showToast("✅ บันทึก " + tp + " ชิ้น = ฿" + ta.toLocaleString());
             fetch(getSheetURL(), {
                 method: "POST", mode: "cors", headers: { "Content-Type": "text/plain;charset=utf-8" },
-                body: JSON.stringify({ type: "sale", ts: ts, branch: currentBranch, staff: staff, price: (S.pricePerPiece || 25), items: items, totalPieces: tp, totalAmount: ta })
+                body: JSON.stringify({ type: "sale", ts: ts, branch: currentBranch, staff: staff, price: (S.pricePerPiece || 25), items: items, totalPieces: tp, totalAmount: ta, token: getTokenFor(currentBranch) })
             }).catch(function () { });
             F.forEach(function (f) { sq[f.id] = 0; }); renderSell(); updBar();
             if (btn) { btn.disabled = false; btn.textContent = "✓ บันทึก"; }
@@ -5266,7 +5309,7 @@
             showToast("✅ บันทึกรอบทอดแล้ว");
             fetch(getSheetURL(), {
                 method: "POST", mode: "cors", headers: { "Content-Type": "text/plain;charset=utf-8" },
-                body: JSON.stringify({ type: "fry", ts: ts, branch: currentBranch, items: items })
+                body: JSON.stringify({ type: "fry", ts: ts, branch: currentBranch, items: items, token: getTokenFor(currentBranch) })
             }).catch(function () { });
             renderFryHero(); renderFryChart(); renderFryPage(); renderSell();
         }
@@ -5404,6 +5447,7 @@
             showToast("✅ รับสต๊อก " + items.reduce(function (a, it) { return a + it.pieces; }, 0) + " ชิ้น");
         }
         function showStockCorrect() {
+            if (denyStaff("stockCorrect")) return;
             var box = $("correctList"); if (!box) return; clr(box);
             F.forEach(function (f) {
                 var row = el("div", { cls: "rx-row" });
@@ -5688,6 +5732,7 @@
             save();
             renderCloseDayStatus();
             showToast("✓ ปิดวันเรียบร้อย");
+            sendEmail(S, true);   // auto report: server picks the recipient (owner email / branch owner)
             if (_closingPastDay) restoreToday();   // Issue3: return to today after late close
         }
 
@@ -6010,6 +6055,7 @@
         }
 
         function exportExcel(type) {
+            if (denyStaff("export")) return;
             if (!S) return;
             if (window.XLSX) { doExport(type, S, null); return; }
             showToast("กำลังโหลด Excel...");
@@ -6019,6 +6065,7 @@
             );
         }
         function exportFromState(data, dateStr) {
+            if (denyStaff("export")) return;
             if (window.XLSX) { doExport("all", data, dateStr); return; }
             showToast("กำลังโหลด Excel...");
             loadXLSX(
@@ -6026,24 +6073,30 @@
                 function (msg) { showToast(msg, true); }
             );
         }
-        function sendEmail() {
-            if (!S) return;
+        // stArg: state to report (close-day passes the closed day's S); onclick passes nothing → current S.
+        function sendEmail(stArg, auto) {
+            var st = (stArg && stArg.stock) ? stArg : S;
+            if (!st) return;
+            var br = st.branch || currentBranch;
+            var isToday = !st.date || normDateStr(st.date) === normDateStr(todayISO());
             var send = function () {
-                doExport("all", S, null, function (b64, fname) {
-                    showToast("📧 กำลังส่งรายงาน...");
-                    fetchJSON(getSheetURL(), {
+                doExport("all", st, isToday ? null : st.date, function (b64, fname) {
+                    showToast(auto ? "📧 กำลังส่งรายงานปิดวัน..." : "📧 กำลังส่งรายงาน...");
+                    fetchJSON(getSyncURL(br), {
                         method: "POST", mode: "cors",
                         headers: { "Content-Type": "text/plain;charset=utf-8" },
                         body: JSON.stringify({
                             type: "email_report",
-                            to: EMAIL_TO,
-                            branch: currentBranch,
-                            date: todayISO(),
+                            branch: br,
+                            date: st.date || todayISO(),
                             filename: fname,
-                            xlsxBase64: b64
+                            xlsxBase64: b64,
+                            token: getTokenFor(br)
                         })
                     }, 30000).then(function (r) {
                         if (r && r.ok) { showToast("✅ ส่งรายงานเข้าอีเมลแล้ว"); }
+                        else if (r && r.auth) { handleAuthFail(br); }
+                        else if (r && r.error === "no_email") { showToast("⚠️ เจ้าของร้านยังไม่ได้ตั้งอีเมลรับรายงาน", true); }
                         else { showToast("❌ ส่งเมลไม่สำเร็จ: " + ((r && r.error) || "unknown"), true); }
                     }).catch(function (e) {
                         showToast("❌ ส่งเมลไม่สำเร็จ (" + (e && e.message ? e.message : e) + ") ลองใหม่อีกครั้ง", true);
@@ -6053,6 +6106,70 @@
             if (window.XLSX) { send(); return; }
             showToast("กำลังโหลด Excel...");
             loadXLSX(send, function (msg) { showToast(msg, true); });
+        }
+
+        // ── Franchise owner settings: report email + staff PIN (owner role only) ──
+        function branchConfigCall(payload, cb) {
+            payload.branch = currentBranch;
+            payload.token = getTokenFor(currentBranch);
+            fetchJSON(FRANCHISE_URL, {
+                method: "POST", mode: "cors",
+                headers: { "Content-Type": "text/plain;charset=utf-8" },
+                body: JSON.stringify(payload)
+            }, 15000).then(function (d) {
+                if (d && d.auth) { handleAuthFail(currentBranch); return; }
+                cb(d || { ok: false });
+            }).catch(function () { cb({ ok: false, error: "network" }); });
+        }
+        function configErrText(d) {
+            var m = {
+                bad_email: "รูปแบบอีเมลไม่ถูกต้อง",
+                bad_pin: "รหัสต้องเป็นตัวเลข 4–6 หลัก",
+                same_as_owner: "รหัสพนักงานต้องไม่ซ้ำกับรหัสเจ้าของ",
+                owner_only: "เฉพาะเจ้าของร้าน",
+                not_provisioned: "สาขานี้ยังไม่ได้รับรหัสเจ้าของจาก HQ",
+                network: "เชื่อมต่อไม่ได้ ลองใหม่"
+            };
+            return m[d && d.error] || "บันทึกไม่สำเร็จ ลองใหม่";
+        }
+        function renderOwnerSettings() {
+            var box = $("ownerSettings"); if (!box) return; clr(box);
+            if (!currentBranch || getSyncURL(currentBranch) !== FRANCHISE_URL) return;
+            if (getRole() !== "owner" || !getTokenFor(currentBranch)) return;
+            var card = el("div", { cls: "card", css: "margin-top:12px" });
+            card.appendChild(el("span", { cls: "sec-lbl", txt: "⚙️ ตั้งค่าเจ้าของร้าน" }));
+            card.appendChild(el("div", { txt: "อีเมลรับรายงานปิดวัน", css: "font-size:12px;color:var(--muted);margin:6px 0 4px" }));
+            var em = el("input", { cls: "lf-input", type: "email", placeholder: "owner@email.com", autocomplete: "off" });
+            var emBtn = el("button", { cls: "abtn-outline", txt: "บันทึกอีเมล" });
+            card.appendChild(em); card.appendChild(emBtn);
+            card.appendChild(el("div", { txt: "เปลี่ยนรหัสพนักงาน (ตัวเลข 4–6 หลัก) — พนักงานทุกเครื่องต้องเข้าสู่ระบบใหม่", css: "font-size:12px;color:var(--muted);margin:12px 0 4px" }));
+            var pinIn = el("input", { cls: "lf-input", type: "password", inputmode: "numeric", maxlength: "6", placeholder: "รหัสพนักงานใหม่", autocomplete: "off" });
+            var pinBtn = el("button", { cls: "abtn-outline", txt: "เปลี่ยนรหัสพนักงาน" });
+            card.appendChild(pinIn); card.appendChild(pinBtn);
+            var note = el("div", { css: "font-size:11px;color:var(--muted);margin-top:8px", txt: "กำลังโหลด..." });
+            card.appendChild(note);
+            box.appendChild(card);
+            branchConfigCall({ type: "get_branch_config" }, function (d) {
+                if (d.ok) {
+                    em.value = d.report_email || "";
+                    note.textContent = d.report_email ? "" : "⚠️ ยังไม่ได้ตั้งอีเมล — รายงานปิดวันจะยังไม่ถูกส่ง";
+                } else { note.textContent = configErrText(d); }
+            });
+            emBtn.onclick = function () {
+                branchConfigCall({ type: "set_report_email", email: em.value.trim() }, function (d) {
+                    if (d.ok) { note.textContent = ""; showToast("✅ บันทึกอีเมลแล้ว"); }
+                    else { showToast(configErrText(d), true); }
+                });
+            };
+            pinBtn.onclick = function () {
+                var v = pinIn.value.trim();
+                if (!/^\d{4,6}$/.test(v)) { showToast("รหัสพนักงานต้องเป็นตัวเลข 4–6 หลัก", true); return; }
+                if (!confirm("เปลี่ยนรหัสพนักงาน?\nพนักงานทุกเครื่องจะต้องเข้าสู่ระบบด้วยรหัสใหม่")) return;
+                branchConfigCall({ type: "set_staff_pin", new_pin: v }, function (d) {
+                    if (d.ok) { pinIn.value = ""; showToast("✅ เปลี่ยนรหัสพนักงานแล้ว"); }
+                    else { showToast(configErrText(d), true); }
+                });
+            };
         }
 
         // ═══════════════════════════════════
@@ -6117,12 +6234,12 @@
             items.forEach(function (it) { if (S.gift_stock[it.id]) S.gift_stock[it.id].sold += it.qty; });
             S.gift_sales.push({ ts: ts, staff: staff, items: items, grandTotal: grandTotal }); save();
             showToast("✅ บันทึกของฝาก ฿" + grandTotal.toLocaleString());
-            fetch(getSheetURL(), { method: "POST", mode: "cors", headers: { "Content-Type": "text/plain;charset=utf-8" }, body: JSON.stringify({ type: "gift_sale", ts: ts, branch: currentBranch, staff: staff, items: items, grandTotal: grandTotal }) }).catch(function () { });
+            fetch(getSheetURL(), { method: "POST", mode: "cors", headers: { "Content-Type": "text/plain;charset=utf-8" }, body: JSON.stringify({ type: "gift_sale", ts: ts, branch: currentBranch, staff: staff, items: items, grandTotal: grandTotal, token: getTokenFor(currentBranch) }) }).catch(function () { });
             S.gift_catalog.forEach(function (g) { gq[g.id] = 0; }); renderGiftSell();
         }
         var _editGiftId = null;
-        function showAddGiftModal() { _editGiftId = null; var t = $("giftModalTitle"); if (t) t.textContent = "+ เพิ่มรายการของฝาก"; var n = $("giftModalName"); if (n) n.value = ""; var p = $("giftModalPrice"); if (p) p.value = ""; var eb = $("giftModalEditBtns"); if (eb) eb.style.display = "none"; $("giftModal").classList.add("open"); }
-        function showEditGiftModal(gid) { var g = S.gift_catalog.find(function (x) { return x.id === gid; }); if (!g) return; _editGiftId = gid; var t = $("giftModalTitle"); if (t) t.textContent = "✏️ แก้ไขรายการของฝาก"; var n = $("giftModalName"); if (n) n.value = g.name; var p = $("giftModalPrice"); if (p) p.value = g.price; var eb = $("giftModalEditBtns"); if (eb) eb.style.display = "block"; $("giftModal").classList.add("open"); }
+        function showAddGiftModal() { if (denyStaff("giftCatalog")) return; _editGiftId = null; var t = $("giftModalTitle"); if (t) t.textContent = "+ เพิ่มรายการของฝาก"; var n = $("giftModalName"); if (n) n.value = ""; var p = $("giftModalPrice"); if (p) p.value = ""; var eb = $("giftModalEditBtns"); if (eb) eb.style.display = "none"; $("giftModal").classList.add("open"); }
+        function showEditGiftModal(gid) { if (denyStaff("giftCatalog")) return; var g = S.gift_catalog.find(function (x) { return x.id === gid; }); if (!g) return; _editGiftId = gid; var t = $("giftModalTitle"); if (t) t.textContent = "✏️ แก้ไขรายการของฝาก"; var n = $("giftModalName"); if (n) n.value = g.name; var p = $("giftModalPrice"); if (p) p.value = g.price; var eb = $("giftModalEditBtns"); if (eb) eb.style.display = "block"; $("giftModal").classList.add("open"); }
         function closeGiftModal() { $("giftModal").classList.remove("open"); }
         function closeGiftModalOutside(e) { if (e.target === $("giftModal")) closeGiftModal(); }
         function saveGiftModal() {
@@ -6312,7 +6429,7 @@
             fetch(url, {
                 method: "POST", mode: "cors",
                 headers: { "Content-Type": "text/plain;charset=utf-8" },
-                body: JSON.stringify({ type: "state_save", branch: item.branch, date: item.date, state: item.state })
+                body: JSON.stringify({ type: "state_save", branch: item.branch, date: item.date, state: item.state, token: getTokenFor(item.branch) })
             }).then(function (r) {
                 return r.json();
             }).then(function (d) {
@@ -6332,6 +6449,10 @@
                     localStorage.setItem("puff10_syncQueue", JSON.stringify(ql));
                     syncPending = ql.length; updateSyncIcon(); _flushing = false;
                     if (ql.length) flushSyncQueue();
+                } else if (d && d.auth) {
+                    _flushing = false;
+                    updateSyncIcon();
+                    handleAuthFail(item.branch);   // item stays in the queue
                 } else {
                     _flushing = false;
                     updateSyncIcon();
@@ -6395,7 +6516,7 @@
             migrateBranchKeys(branch);
             // state_latest: returns the most recent state of this branch on cloud,
             // regardless of how many days ago it was saved (fixes multi-device gap bug)
-            fetch(baseUrl + "?type=state_latest&branch=" + encodeURIComponent(branch))
+            fetch(baseUrl + "?type=state_latest&branch=" + encodeURIComponent(branch) + "&t=" + encodeURIComponent(getTokenFor(branch)))
                 .then(function (r) { return r.json(); })
                 .then(function (data) {
                     if (data.ok && data.state && data.date) {
@@ -6526,6 +6647,7 @@
                     .then(function (d) {
                         if (d && d.ok) {
                             localStorage.setItem("puff10_hqSession", String(Date.now()));
+                            localStorage.setItem("puff10_hqToken", (d && d.token) || "");
                             _hqAuthed = true;
                             renderHQTab();
                         } else {
@@ -6559,9 +6681,17 @@
                 if (onDone) onDone();
                 return;
             }
-            fetch(OWNER_URL + "?type=state_list")
+            fetch(OWNER_URL + "?type=state_list&t=" + encodeURIComponent(localStorage.getItem("puff10_hqToken") || ""))
                 .then(function (r) { return r.json(); })
                 .then(function (data) {
+                    if (data && data.auth) {   // HQ token expired or HQ PIN changed
+                        _hqAuthed = false;
+                        localStorage.removeItem("puff10_hqSession");
+                        localStorage.removeItem("puff10_hqToken");
+                        renderHQTab();
+                        if (onDone) onDone();
+                        return;
+                    }
                     var pg2 = $("page-hq"); if (!pg2) { if (onDone) onDone(); return; }
                     clr(pg2);
                     pg2.appendChild(el("div", { css: "display:flex;justify-content:space-between;align-items:center;padding:16px 16px 4px" }, [
