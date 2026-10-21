@@ -9,8 +9,8 @@
     <meta http-equiv="Expires" content="0">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="default">
-    <meta name="build-version" content="20260920.0010">
-    <title>Puff Stick POS v12 · 20260920.0010</title>
+    <meta name="build-version" content="20261021.0011">
+    <title>Puff Stick POS v12 · 20261021.0011</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link
@@ -3450,11 +3450,6 @@
                 <label class="lf-label" for="loginBranchSel">สาขา *</label>
                 <select class="lf-input" id="loginBranchSel" onchange="onLoginSelectChange()" required>
                     <option value="">— เลือกสาขา —</option>
-                    <option value="SBR-01">SBR-01 · สระบุรี (สาขาหลัก)</option>
-                    <option value="TBK-02">TBK-02 · ปตท.ทับกวาง</option>
-                    <option value="MVK-03">MVK-03 · สาขามวกเหล็ก</option>
-                    <option value="WNY-04">WNY-04 · ปตท.บ้านใหญ่วังน้อย</option>
-                    <option value="BPI-05">BPI-05 · ปตท.บางปะอิน</option>
                 </select>
             </div>
             <div class="lf-group">
@@ -3499,7 +3494,7 @@
             <div id="deviceModeBadge"
                 style="font-size:9px;font-family:var(--f);padding:1px 6px;border-radius:8px;margin-bottom:4px"></div>
             <div id="buildVer" style="font-family:var(--f);font-size:9px;color:var(--muted);padding:0 0 6px;opacity:.6">
-                build 20260920.0010</div>
+                build 20261021.0011</div>
         </div>
 
         <!-- PAGES (role=main wraps all tab pages) -->
@@ -3866,6 +3861,7 @@
             { code: "MVK-03", label: "สาขามวกเหล็ก" },
             { code: "WNY-04", label: "ปตท.บ้านใหญ่วังน้อย" },
             { code: "BPI-05", label: "ปตท.บางปะอิน" },
+            { code: "PS-MU2", label: "Puff Stick มวกเหล็ก2" },
         ];
 
         var F = [
@@ -4155,6 +4151,15 @@
             try { stored = JSON.parse(localStorage.getItem("puff10_loginStaff")); } catch (e) { }
             if (stored && stored.name) return { name: stored.name, nick: stored.nick, phone: stored.phone };
             return { name: "", nick: "", phone: "" };
+        }
+
+        // Owner-branch dropdown is built from BRANCH_CODES — single source of truth (also drives Owner/Franchise routing)
+        function renderBranchOptions() {
+            var sel = $("loginBranchSel"); if (!sel) return;
+            while (sel.options.length > 1) { sel.remove(1); }
+            BRANCH_CODES.forEach(function (b) {
+                sel.appendChild(el("option", { value: b.code, txt: b.code + " · " + b.label }));
+            });
         }
 
         // ── LOGIN ──
@@ -6193,6 +6198,7 @@
         }
 
         window.addEventListener("DOMContentLoaded", function () {
+            renderBranchOptions();   // must run before lastBranch pre-select below
             var lastBranch = localStorage.getItem("puff8_lastBranch");
             var lastStaff = null;
             try { lastStaff = JSON.parse(localStorage.getItem("puff10_loginStaff")); } catch (e) { }

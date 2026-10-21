@@ -86,3 +86,14 @@ Skills live in `.agents/skills/`. They load by description when relevant. Reach 
 5. Staff PDF manual v3 (add: close-day confirm button, Delivery, HQ tab).
 
 Always re-read `docs/HANDOFF.md` for the current truth; this list can go stale.
+
+## 8. Context Hub (shared memory) — retrieve first
+
+Central cross-session memory. Backend: `https://context-hub.92foodlimited.workers.dev` (contract in `CONTEXT-HUB.md`). Token in `$env:HUB_TOKEN`.
+
+- **At the START of a POS task,** retrieve prior context and use it:
+  `GET /retrieve?q=<topic>&project=puff-pos&topK=5` — Header `Authorization: Bearer $HUB_TOKEN`.
+- **Claude Code** auto-captures at session end via a SessionEnd hook → in Claude Code, only retrieve; do not double-capture.
+- **Antigravity / other agents:** on a durable decision or learning, `POST /capture` with body `{"project":"puff-pos","content":"<decision>","tags":["decision"],"source":"agent"}` and `Content-Type: application/json; charset=utf-8`.
+- **Never** print/echo `HUB_TOKEN`. **Never** capture secrets (esp. the Telegram bot token), raw Sheet data, or full file dumps — decisions and learnings only. This does not relax §4.
+- Additional to `CAPTURE_LOG.md`, not a replacement — the repo log stays; Context Hub makes it retrievable across sessions.
