@@ -9,8 +9,8 @@
     <meta http-equiv="Expires" content="0">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="default">
-    <meta name="build-version" content="20261022.0012">
-    <title>Puff Stick POS v12 · 20261022.0012</title>
+    <meta name="build-version" content="20261027.0013">
+    <title>Puff Stick POS v12 · 20261027.0013</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link
@@ -26,9 +26,11 @@
             --ink: #2A1F14;
             --ink-soft: #5C4A38;
             --muted: #7A6B58;
-            --mustard: #F2B33D;
-            --mustard-deep: #E69A1F;
-            --mustard-soft: #FCE6A8;
+            --mustard: #6FA3D6;
+            --mustard-deep: #2F6FAE;
+            --mustard-soft: #DCE7F2;
+            --on-accent: #082B4A;
+            --navy: #0B3D66;
             --cream: #F5E5C0;
             --caramel: #C57A3A;
             --cocoa: #5C3B22;
@@ -786,7 +788,7 @@
             padding: 18px 20px 16px;
             position: relative;
             overflow: hidden;
-            background: linear-gradient(135deg, #F2B33D 0%, #E69A1F 100%);
+            background: linear-gradient(135deg, #6FA3D6 0%, #2F6FAE 100%);
             box-shadow: 0 8px 28px rgba(230, 154, 31, .32);
             margin-bottom: 12px;
             min-height: 148px
@@ -3401,6 +3403,207 @@
         input[type=number]::-webkit-outer-spin-button {
             display: none;
         }
+
+        /* ── U1 (build 0013): sign-blue accent, readable nav, tablet sizing ── */
+        .login-btn, .abtn, .qbtn.plus, .ab-btn, .save-btn-inner, .hdr-avatar,
+        .dp.today .dp-day, .dp.today .dp-num,
+        .sh-label, .sh-amount, .sh-detail, .sh-chip {
+            color: var(--on-accent)
+        }
+
+        .login-btn, .abtn, .ab-btn, .save-btn-inner {
+            box-shadow: 0 4px 12px rgba(47, 111, 174, .30)
+        }
+
+        .dp.today {
+            box-shadow: 0 4px 10px rgba(47, 111, 174, .30)
+        }
+
+        .fcard.has {
+            box-shadow: 0 4px 14px rgba(47, 111, 174, .18)
+        }
+
+        .hbc-bar.peak {
+            box-shadow: 0 4px 8px rgba(47, 111, 174, .30)
+        }
+
+        .login-circle-wrap {
+            box-shadow: 0 14px 30px rgba(47, 111, 174, .25)
+        }
+
+        .sales-hero {
+            box-shadow: 0 8px 28px rgba(47, 111, 174, .32)
+        }
+
+        .ch-label {
+            color: #BFD6EC
+        }
+
+        .action-bar-inner {
+            background: var(--navy);
+            color: #FFFFFF
+        }
+
+        /* Nav: flat blue bar, labels always on, active tab = navy pill (bubble path hidden) */
+        .nav-svg {
+            display: none
+        }
+
+        .tab-row {
+            background: var(--mustard);
+            padding: 0 6px
+        }
+
+        .tab-btn {
+            height: 52px;
+            margin: 0 2px;
+            border-radius: 14px
+        }
+
+        .tab-btn .ticon,
+        .tab-btn.active .ticon {
+            transform: none;
+            opacity: 1
+        }
+
+        .tab-btn .ticon svg {
+            stroke: var(--on-accent)
+        }
+
+        .tab-btn .tlbl {
+            max-height: 20px;
+            opacity: 1;
+            margin-top: 3px;
+            font-size: 11px;
+            color: var(--on-accent)
+        }
+
+        .tab-btn.active {
+            background: var(--navy)
+        }
+
+        .tab-btn.active .ticon svg {
+            stroke: #FFFFFF
+        }
+
+        .tab-btn.active .tlbl {
+            color: #FFFFFF
+        }
+
+        @media (hover: hover) {
+            .fcard:not(.empty):hover {
+                border-color: var(--mustard-deep);
+                box-shadow: 0 6px 18px rgba(47, 111, 174, .22)
+            }
+
+            .tab-btn:hover .ticon {
+                opacity: .8
+            }
+        }
+
+        /* Tablet: one-line header, bigger touch targets, readable chart labels */
+        @media (min-width: 768px) {
+            .app-header {
+                display: flex;
+                align-items: center;
+                gap: 12px;
+                padding: 8px 24px
+            }
+
+            .header-top {
+                display: contents
+            }
+
+            .hdr-avatar { order: 0 }
+            .hdr-info { order: 1; flex: 1 }
+            #syncIcon { order: 2; margin: 0 !important }
+            #deviceModeBadge { order: 3; margin: 0 !important; padding: 4px 10px !important; font-size: 12px !important }
+            #headerClock { order: 4; padding: 0; font-size: 12px }
+            #buildVer { order: 5; padding: 0 !important }
+
+            .logout-btn {
+                order: 6;
+                min-height: 44px;
+                padding: 0 16px;
+                font-size: 13px
+            }
+
+            .page {
+                padding: 16px 24px 140px
+            }
+
+            .fcard {
+                padding: 12px 16px
+            }
+
+            .fcard-name,
+            .rx-name {
+                font-size: 16px
+            }
+
+            .qbtn {
+                width: 52px;
+                height: 52px;
+                font-size: 22px
+            }
+
+            .qinput {
+                width: 72px;
+                height: 52px;
+                font-size: 20px
+            }
+
+            .rx-input {
+                width: 96px;
+                height: 48px;
+                font-size: 18px
+            }
+
+            .fr-input,
+            .fry-two-col .fr-input {
+                width: 84px;
+                height: 48px;
+                font-size: 18px
+            }
+
+            .fr-name,
+            .fry-two-col .fr-name {
+                font-size: 14px
+            }
+
+            .phys-cell-input {
+                height: 48px;
+                font-size: 18px
+            }
+
+            .dmg-inp {
+                height: 44px;
+                font-size: 16px
+            }
+
+            .cash-input {
+                width: 140px;
+                height: 48px;
+                font-size: 18px
+            }
+
+            .text-input {
+                height: 44px;
+                font-size: 15px
+            }
+
+            .scc-bar-num,
+            .cc-bar-num,
+            .sb-num {
+                font-size: 12px
+            }
+
+            .scc-vname,
+            .cc-vname,
+            .sb-vname {
+                font-size: 11px
+            }
+        }
     </style>
 </head>
 
@@ -3494,7 +3697,7 @@
             <div id="deviceModeBadge"
                 style="font-size:9px;font-family:var(--f);padding:1px 6px;border-radius:8px;margin-bottom:4px"></div>
             <div id="buildVer" style="font-family:var(--f);font-size:9px;color:var(--muted);padding:0 0 6px;opacity:.6">
-                build 20261022.0012</div>
+                build 20261027.0013</div>
         </div>
 
         <!-- PAGES (role=main wraps all tab pages) -->
@@ -4242,7 +4445,7 @@
                         "border-radius:10px",
                         "border:1.5px solid " + (cur === opt.id ? "var(--mustard)" : "#CCC"),
                         "background:" + (cur === opt.id ? "var(--mustard)" : "#FFF"),
-                        "color:" + (cur === opt.id ? "#FFF" : "var(--muted)"),
+                        "color:" + (cur === opt.id ? "var(--on-accent)" : "var(--muted)"),
                         "font-size:12px",
                         "font-family:var(--f)",
                         "cursor:pointer",
@@ -5366,7 +5569,7 @@
                 bwrap.appendChild(el("div", { cls: "sb-num", txt: String(total) }));
                 var stack = el("div", { css: "display:flex;flex-direction:column;justify-content:flex-end;height:" + Math.max(3, pct) + "%" });
                 var frzSeg = el("div", { cls: "sb-seg" }); frzSeg.style.flex = String(frz || 0); frzSeg.style.background = "var(--ice)"; frzSeg.style.minHeight = frz > 0 ? "4px" : "0";
-                var friSeg = el("div", { cls: "sb-seg" }); friSeg.style.flex = String(fri || 0); friSeg.style.background = "var(--mustard)"; friSeg.style.minHeight = fri > 0 ? "4px" : "0";
+                var friSeg = el("div", { cls: "sb-seg" }); friSeg.style.flex = String(fri || 0); friSeg.style.background = "#D9A066"; friSeg.style.minHeight = fri > 0 ? "4px" : "0";
                 var sldSeg = el("div", { cls: "sb-seg" }); sldSeg.style.flex = String(sld || 0); sldSeg.style.background = "var(--blush)"; sldSeg.style.minHeight = sld > 0 ? "4px" : "0";
                 stack.appendChild(frzSeg); stack.appendChild(friSeg); stack.appendChild(sldSeg);
                 bwrap.appendChild(stack);
@@ -5375,7 +5578,7 @@
             });
             box.appendChild(bars);
             var leg = el("div", { cls: "chart-legend" });
-            [{ bg: "var(--ice)", txt: "แช่แข็ง" }, { bg: "var(--mustard)", txt: "ทอดแล้ว" }, { bg: "var(--blush)", txt: "ขายแล้ว" }].forEach(function (l) {
+            [{ bg: "var(--ice)", txt: "แช่แข็ง" }, { bg: "#D9A066", txt: "ทอดแล้ว" }, { bg: "var(--blush)", txt: "ขายแล้ว" }].forEach(function (l) {
                 var li = el("div", { cls: "legend-item" });
                 var dot = el("div", { cls: "legend-dot" }); dot.style.background = l.bg;
                 li.appendChild(dot); li.appendChild(el("span", { cls: "legend-txt", txt: l.txt }));
@@ -6549,7 +6752,7 @@
                 el.textContent = "☁✗"; el.style.color = "#D26A5C";
                 el.title = "ออฟไลน์ — " + queue.length + " รายการรอส่ง";
             } else if (queue.length > 0) {
-                el.textContent = "☁⟳"; el.style.color = "#F2B33D";
+                el.textContent = "☁⟳"; el.style.color = "#2F6FAE";
                 el.title = "กำลังซิงค์ " + queue.length + " รายการ";
             } else {
                 el.textContent = "☁✓"; el.style.color = "#6B9E4B";
@@ -6720,7 +6923,7 @@
                             el("div", { css: "width:8px;height:8px;border-radius:50%;background:" + dot + ";flex-shrink:0" }),
                             el("div", { txt: branch, css: "font-family:var(--fb);font-size:14px;color:var(--cocoa)" })
                         ]));
-                        top.appendChild(el("div", { txt: isToday ? "วันนี้" : sDateCanon, css: "font-size:10px;color:" + (isToday ? "var(--mustard)" : "var(--muted)") }));
+                        top.appendChild(el("div", { txt: isToday ? "วันนี้" : sDateCanon, css: "font-size:10px;color:" + (isToday ? "var(--mustard-deep)" : "var(--muted)") }));
                         card.appendChild(top);
                         if (s.lastStaff && s.lastStaff.nick) {
                             card.appendChild(el("div", { txt: "พนักงาน: " + s.lastStaff.nick + " (" + s.lastStaff.name + ")", css: "font-size:11px;color:var(--muted);margin-bottom:8px" }));
@@ -6733,7 +6936,7 @@
                             ]);
                         }
                         nums.appendChild(numBox("ยอด ฿", Number(s.totalAmount || 0).toLocaleString(), "var(--cocoa)"));
-                        nums.appendChild(numBox("ขายแล้ว", (s.soldPieces || 0) + " ชิ้น", "var(--mustard)"));
+                        nums.appendChild(numBox("ขายแล้ว", (s.soldPieces || 0) + " ชิ้น", "var(--mustard-deep)"));
                         nums.appendChild(numBox("แช่แข็ง", (s.frozenPieces || 0) + " ชิ้น", "var(--cocoa)"));
                         nums.appendChild(numBox("ทอดวันนี้", (s.fryPieces || 0) + " ชิ้น", "var(--cocoa)"));
                         card.appendChild(nums);
