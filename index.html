@@ -9,8 +9,8 @@
     <meta http-equiv="Expires" content="0">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="default">
-    <meta name="build-version" content="20261027.0014">
-    <title>Puff Stick POS v12 · 20261027.0014</title>
+    <meta name="build-version" content="20261028.0015">
+    <title>Puff Stick POS v12 · 20261028.0015</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link
@@ -4043,7 +4043,7 @@
             <div id="deviceModeBadge"
                 style="font-size:9px;font-family:var(--f);padding:1px 6px;border-radius:8px;margin-bottom:4px"></div>
             <div id="buildVer" style="font-family:var(--f);font-size:9px;color:var(--muted);padding:0 0 6px;opacity:.6">
-                build 20261027.0014</div>
+                build 20261028.0015</div>
         </div>
 
         <!-- PAGES (role=main wraps all tab pages) -->
@@ -4220,12 +4220,12 @@
                     <div class="card-title">นับเงิน · Reconcile</div>
                     <div class="rec-row">
                         <span class="rec-label">เงินทอนที่เตรียมไว้</span>
-                        <input class="cash-input" id="changeFloat" type="number" placeholder="0" oninput="calcClose()">
+                        <input class="cash-input" id="changeFloat" type="number" placeholder="0" oninput="onCashInput()">
                         <span class="rec-unit">บาท</span>
                     </div>
                     <div class="rec-row">
                         <span class="rec-label">เงินสดจริง</span>
-                        <input class="cash-input" id="cashAmount" type="number" placeholder="0" oninput="calcClose()">
+                        <input class="cash-input" id="cashAmount" type="number" placeholder="0" oninput="onCashInput()">
                         <span class="rec-unit">บาท</span>
                     </div>
                     <div class="rec-row">
@@ -4237,7 +4237,7 @@
                     <div class="rec-row">
                         <span class="rec-label">โอน / QR</span>
                         <input class="cash-input" id="transferAmount" type="number" placeholder="0"
-                            oninput="calcClose()">
+                            oninput="onCashInput()">
                         <span class="rec-unit">บาท</span>
                     </div>
                 </div>
@@ -5226,11 +5226,10 @@
         // Unified hero render — used by today AND past dates (consistent layout)
         function renderHeroForState(state, labelOverride) {
             var box = $("homeSalesCard"); if (!box) return; clr(box);
-            var totA = 0, totP = 0, cashAmt = 0, qrAmt = 0;
+            var totA = 0, totP = 0;
             if (state && state.sales) {
                 state.sales.forEach(function (s) { totA += s.totalAmount; totP += s.totalPieces; });
             }
-            cashAmt = Math.round(totA * 0.7); qrAmt = totA - cashAmt;
             var ordCnt = state && state.sales ? state.sales.length : 0;
             var avg = ordCnt ? Math.round(totA / ordCnt) : 0;
             var label = labelOverride ? ("ยอดขาย · " + labelOverride) : "ยอดขาย · วันนี้";
@@ -5245,12 +5244,6 @@
             inner.appendChild(el("div", { cls: "sh-label", txt: label }));
             inner.appendChild(el("div", { cls: "sh-amount", txt: "฿" + totA.toLocaleString() }));
             inner.appendChild(el("div", { cls: "sh-detail", txt: totP + " ชิ้น · " + ordCnt + " ออเดอร์ · เฉลี่ย ฿" + avg.toLocaleString() }));
-            if (totA > 0) {
-                var chips = el("div", { cls: "sh-chips" });
-                chips.appendChild(el("span", { cls: "sh-chip", txt: "💵 ฿" + cashAmt.toLocaleString() }));
-                chips.appendChild(el("span", { cls: "sh-chip", txt: "📱 ฿" + qrAmt.toLocaleString() }));
-                inner.appendChild(chips);
-            }
             card.appendChild(inner);
             var src = $("puffSrcImg");
             if (src) {
@@ -6129,7 +6122,7 @@
                     if (top3.length) sc.appendChild(el("div", { css: "margin-top:8px;font-size:11px;color:var(--muted);font-family:var(--ft)", html: "ขายดี: " + top3.map(function (x) { return "<b>" + x[0] + "</b> ×" + x[1]; }).join(" · ") }));
                 }
             }
-            renderGiftSalesCard(); renderPhysCount(); renderDamagedFree(); renderWithdrawals(); calcClose();
+            renderGiftSalesCard(); renderPhysCount(); renderDamagedFree(); renderWithdrawals(); restoreCashInputs(); calcClose();
         }
 
         function renderPhysCount() {
@@ -6169,12 +6162,11 @@
             var inp = $("pc-" + id); if (!inp) return;
             if (inp.value === "") { delete S.counted[id]; } else { S.counted[id] = parseInt(inp.value) || 0; }
             save();
-            var fryOut = S.stock[id].fry_out;
-            var dmg = S.damaged[id] || 0; var free2 = S.free_items[id] || 0;
-            var hasAny = false; var totalP = 0; var totalBaht = 0;
-            F.forEach(function (f) { var i = $("pc-" + f.id); if (i && i.value !== "") { hasAny = true; var sold = Math.max(0, S.stock[f.id].fry_out - (parseInt(i.value) || 0) - (S.damaged[f.id] || 0) - (S.free_items[f.id] || 0)); totalP += sold; totalBaht += sold * getPrice(f.id); } });
+            var cs = calcCountSales(S);
+            var hasAny = false; cs.rows.forEach(function (r) { if (r.counted !== null) hasAny = true; });
+            var totalP = cs.pieces; var totalBaht = cs.amount;
             var pr = $("physResult");
-            if (pr) { pr.style.display = hasAny ? "block" : "none"; if (hasAny) { clr(pr); var resDiv = el("div", { css: "background:#EFF6FF;border:1.5px solid #93C5FD;border-radius:12px;padding:10px 12px" }); resDiv.appendChild(el("div", { cls: "rrow", css: "padding:4px 0" }, [el("span", { cls: "rkey", txt: "รวมขายจริง (นับหน้าตู้)" }), el("span", { cls: "rval", txt: totalP.toLocaleString() + " ชิ้น" })])); resDiv.appendChild(el("div", { cls: "rrow", css: "padding:4px 0;border:none" }, [el("span", { cls: "rkey", txt: "ยอดเงิน" }), el("span", { cls: "rval", css: "color:var(--blue);font-size:15px", txt: "฿" + totalBaht.toLocaleString() })])); pr.appendChild(resDiv); } }
+            if (pr) { pr.style.display = hasAny ? "block" : "none"; if (hasAny) { clr(pr); var resDiv = el("div", { css: "background:#EFF6FF;border:1.5px solid #93C5FD;border-radius:12px;padding:10px 12px" }); resDiv.appendChild(el("div", { cls: "rrow", css: "padding:4px 0" }, [el("span", { cls: "rkey", txt: "ขายหน้าร้านจากการนับ (ไม่รวม Delivery)" }), el("span", { cls: "rval", txt: totalP.toLocaleString() + " ชิ้น" })])); resDiv.appendChild(el("div", { cls: "rrow", css: "padding:4px 0;border:none" }, [el("span", { cls: "rkey", txt: "ยอดเงิน" }), el("span", { cls: "rval", css: "color:var(--blue);font-size:15px", txt: "฿" + totalBaht.toLocaleString() })])); pr.appendChild(resDiv); } }
             calcClose();
         }
 
@@ -6225,42 +6217,72 @@
             updateWithdrawSum();
         }
 
-        function isCountComplete() {
-            if (!S || !S.counted) return false;
-            var ok = true;
-            F.forEach(function (f) {
-                var fo = (S.stock[f.id] && S.stock[f.id].fry_out) || 0;
-                if (fo <= 0) return;
-                var cv = S.counted[f.id];
-                if (cv === undefined || cv === null || cv === "") ok = false;
+        // ── L1: single source of truth for count-based close numbers (calcClose / onPhysCount / doExport) ──
+        // Front-desk sold per filling = fry_out − counted − damaged − free − delivery pieces (never below 0).
+        // complete = state has a counted map AND every filling with fry_out > 0 has a count.
+        function calcCountSales(st) {
+            var r = { rows: [], pieces: 0, amount: 0, complete: !!(st && st.counted), dlvNet: 0, dlvGross: 0 };
+            if (!st || !st.stock) { r.complete = false; return r; }
+            var counted = st.counted || {}, dmgMap = st.damaged || {}, freeMap = st.free_items || {};
+            var dlvPieces = {};
+            (st.delivery_sales || []).forEach(function (d) {
+                r.dlvNet += (d.netAmount || 0); r.dlvGross += (d.grossAmount || 0);
+                (d.items || []).forEach(function (it) { dlvPieces[it.id] = (dlvPieces[it.id] || 0) + (it.pieces || 0); });
             });
-            return ok;
+            F.forEach(function (f) {
+                var fo = (st.stock[f.id] && st.stock[f.id].fry_out) || 0;
+                var cv = counted[f.id];
+                var hasCount = !(cv === undefined || cv === null || cv === "");
+                if (fo > 0 && !hasCount) r.complete = false;
+                var row = { id: f.id, code: f.code, name: f.n, fry: fo, counted: hasCount ? (parseInt(cv) || 0) : null, dmg: dmgMap[f.id] || 0, free: freeMap[f.id] || 0, dlv: dlvPieces[f.id] || 0, price: priceOf(st, f.id), sold: null, amount: 0 };
+                if (hasCount) {
+                    row.sold = Math.max(0, fo - row.counted - row.dmg - row.free - row.dlv);
+                    row.amount = row.sold * row.price;
+                    r.pieces += row.sold; r.amount += row.amount;
+                }
+                r.rows.push(row);
+            });
+            return r;
         }
+        // ── L1: close-day money inputs persisted in S.cash (synced to CloudState with the day) ──
+        var CASH_FIELDS = [["float", "changeFloat"], ["cash", "cashAmount"], ["transfer", "transferAmount"]];
+        function cashOf(st) {
+            var c = (st && st.cash) || {};
+            return { float: parseInt(c.float) || 0, cash: parseInt(c.cash) || 0, transfer: parseInt(c.transfer) || 0 };
+        }
+        function restoreCashInputs() {
+            var c = (S && S.cash) || {};
+            CASH_FIELDS.forEach(function (p) {
+                var inp = $(p[1]); if (!inp) return;
+                inp.value = (c[p[0]] !== undefined && c[p[0]] !== null) ? String(c[p[0]]) : "";
+            });
+        }
+        function onCashInput() {
+            if (!S) return;
+            if (S.is_closed) { restoreCashInputs(); showToast("ปิดวันแล้ว แก้ยอดเงินไม่ได้", true); return; }
+            var c = {};
+            CASH_FIELDS.forEach(function (p) {
+                var inp = $(p[1]); if (inp && inp.value !== "") c[p[0]] = parseInt(inp.value) || 0;
+            });
+            S.cash = c;
+            save();
+            calcClose();
+        }
+        function isCountComplete() { return calcCountSales(S).complete; }
         function calcClose() {
             if (!S) return;
             if (!S.counted) S.counted = {};
-            var fl = parseInt(($("changeFloat") || { value: "0" }).value) || 0;
-            var ca = parseInt(($("cashAmount") || { value: "0" }).value) || 0;
+            var cs = calcCountSales(S);
+            var cm = cashOf(S);
+            var fl = cm.float, ca = cm.cash, tr = cm.transfer;
             var tw = 0; (S.withdrawals || []).forEach(function (w) { tw += w.amount || 0; });
-            var tr = parseInt(($("transferAmount") || { value: "0" }).value) || 0;
-            var dlv = 0; (S.delivery_sales || []).forEach(function (d) { dlv += (d.netAmount || 0); });
+            var dlv = cs.dlvNet;
             var net = ca - fl - tw + tr + dlv;
-            var dlvPieces = {};
-            (S.delivery_sales || []).forEach(function (d) { (d.items || []).forEach(function (it) { dlvPieces[it.id] = (dlvPieces[it.id] || 0) + (it.pieces || 0); }); });
-            var puffAmt = 0;
-            F.forEach(function (f) {
-                var fo = (S.stock[f.id] && S.stock[f.id].fry_out) || 0;
-                if (fo <= 0) return;
-                var cv = S.counted[f.id];
-                if (cv === undefined || cv === null || cv === "") return;
-                var sold = fo - (parseInt(cv) || 0) - (S.damaged[f.id] || 0) - (S.free_items[f.id] || 0) - (dlvPieces[f.id] || 0);
-                if (sold < 0) sold = 0;
-                puffAmt += sold * getPrice(f.id);
-            });
+            var puffAmt = cs.amount;
             var tappedAmt = S.sales.reduce(function (a, s) { return a + s.totalAmount; }, 0);
-            var countsComplete = isCountComplete();
+            var countsComplete = cs.complete;
             var giftAmt = 0; (S.gift_sales || []).forEach(function (g) { giftAmt += (g.grandTotal || 0); });
-            var dlvGross = 0; (S.delivery_sales || []).forEach(function (d) { dlvGross += (d.netAmount || 0); });
+            var dlvGross = cs.dlvNet;   // name kept: this line of the breakdown shows Delivery NET
             var expected = puffAmt + giftAmt + dlvGross;
             var cr = $("closeResult"); if (!cr) return;
             if (!ca && !tr && !dlv) { clr(cr); return; }
@@ -6340,9 +6362,8 @@
             if (!S) return;
             if (S.is_closed) { showToast("วันนี้ปิดไปแล้ว", true); return; }
             // Validate: must have entered cash/transfer amounts
-            var ca = parseInt(($("cashAmount") || { value: "0" }).value) || 0;
-            var tr = parseInt(($("transferAmount") || { value: "0" }).value) || 0;
-            var dlv = 0; (S.delivery_sales || []).forEach(function (d) { dlv += (d.netAmount || 0); });
+            var cm = cashOf(S); var ca = cm.cash; var tr = cm.transfer;
+            var dlv = calcCountSales(S).dlvNet;
             if (ca <= 0 && tr <= 0 && dlv <= 0) {
                 showToast("กรุณาใส่ยอดเงินก่อนปิดวัน", true);
                 return;
@@ -6555,21 +6576,19 @@
                 XLSX.utils.book_append_sheet(wb, ws2, "สต๊อก");
             }
             if (type === "close" || type === "all") {
-                var crows = [["รหัสสินค้า", "ไส้", "ทอดออกมา", "นับเหลือ", "เสีย", "แถม", "ขายจริง(ชิ้น)", "ราคา/ชิ้น", "ยอดเงิน(บาท)"]];
-                var ts2 = 0, tm = 0;
-                F.forEach(function (f) {
-                    var inp = $("pc-" + f.id); var st = data.stock[f.id] || {};
-                    var fryOut = st.fry_out || 0; var dmg = data.damaged && data.damaged[f.id] || 0; var free3 = data.free_items && data.free_items[f.id] || 0;
-                    if (inp && inp.value !== "") { var cnt = parseInt(inp.value) || 0; var sold = Math.max(0, fryOut - cnt - dmg - free3); var rowPrice = priceOf(data, f.id); var money = sold * rowPrice; ts2 += sold; tm += money; crows.push([f.code, f.n, fryOut, cnt, dmg, free3, sold, rowPrice, money]); }
-                    else { crows.push([f.code, f.n, fryOut, "(ไม่ได้นับ)", dmg, free3, "", "", ""]); }
+                var crows = [["รหัสสินค้า", "ไส้", "ทอดออกมา", "นับเหลือ", "เสีย", "แถม", "Delivery", "ขายหน้าร้าน(ชิ้น)", "ราคา/ชิ้น", "ยอดเงิน(บาท)"]];
+                var csx = calcCountSales(data);
+                csx.rows.forEach(function (r) {
+                    if (r.counted !== null) { crows.push([r.code, r.name, r.fry, r.counted, r.dmg, r.free, r.dlv, r.sold, r.price, r.amount]); }
+                    else { crows.push([r.code, r.name, r.fry, "(ไม่ได้นับ)", r.dmg, r.free, r.dlv, "", "", ""]); }
                 });
-                crows.push([]); crows.push(["", "", "", "", "", "รวม", ts2, "", tm]);
-                var cf2 = parseInt(($("changeFloat") || { value: "0" }).value) || 0;
-                var ca2 = parseInt(($("cashAmount") || { value: "0" }).value) || 0;
-                var tr2 = parseInt(($("transferAmount") || { value: "0" }).value) || 0;
+                var ts2 = csx.pieces, tm = csx.amount;
+                crows.push([]); crows.push(["", "", "", "", "", "", "รวม", ts2, "", tm]);
+                var cmx = cashOf(data);
+                var cf2 = cmx.float, ca2 = cmx.cash, tr2 = cmx.transfer;
                 var tw2 = 0; (data.withdrawals || []).forEach(function (w) { tw2 += w.amount || 0; });
                 var giftTot = 0; (data.gift_sales || []).forEach(function (g) { giftTot += (g.grandTotal || 0); });
-                var dlvNet = 0, dlvGross = 0; (data.delivery_sales || []).forEach(function (d) { dlvNet += (d.netAmount || 0); dlvGross += (d.grossAmount || 0); });
+                var dlvNet = csx.dlvNet, dlvGross = csx.dlvGross;
                 var expectedTotal = tm + giftTot + dlvNet;
                 var receivedTotal = ca2 - cf2 - tw2 + tr2 + dlvNet;
                 crows.push([]); crows.push(["── บัญชีเงิน ──"]);
@@ -6580,9 +6599,9 @@
                 moneyRows.push(["รวมรับจริง", receivedTotal]);
                 moneyRows.push(["ยอดที่คาดได้ (พัฟ+ของฝาก+Delivery)", expectedTotal]);
                 moneyRows.push(["ผลต่าง", receivedTotal - expectedTotal]);
-                moneyRows.forEach(function (r) { crows.push([r[0], "", "", "", "", "", "", r[1]]); });
+                moneyRows.forEach(function (r) { crows.push([r[0], "", "", "", "", "", "", "", "", r[1]]); });
                 var ws3 = XLSX.utils.aoa_to_sheet(hRows.concat(crows));
-                ws3["!cols"] = [{ wch: 20 }, { wch: 26 }, { wch: 12 }, { wch: 12 }, { wch: 10 }, { wch: 10 }, { wch: 14 }, { wch: 10 }, { wch: 14 }];
+                ws3["!cols"] = [{ wch: 20 }, { wch: 26 }, { wch: 12 }, { wch: 12 }, { wch: 10 }, { wch: 10 }, { wch: 10 }, { wch: 16 }, { wch: 10 }, { wch: 14 }];
                 XLSX.utils.book_append_sheet(wb, ws3, "ปิดวัน");
             }
             if (type === "all" && data.fry_log && data.fry_log.length) {
