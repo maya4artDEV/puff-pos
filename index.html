@@ -9,8 +9,8 @@
     <meta http-equiv="Expires" content="0">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="default">
-    <meta name="build-version" content="20261028.0015">
-    <title>Puff Stick POS v12 · 20261028.0015</title>
+    <meta name="build-version" content="20261029.0016">
+    <title>Puff Stick POS v12 · 20261029.0016</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link
@@ -440,6 +440,16 @@
             color: var(--muted);
             margin-top: 1px
         }
+
+        /* L2: back-date banner — shown on every tab while a past business day is open */
+        #backDateBanner { display: none; align-items: center; justify-content: space-between; gap: 8px; margin: 6px 0 8px; padding: 10px 14px; border-radius: 12px; background: #C84238; color: #fff; font-family: var(--fb); font-size: 14px }
+        #clockBar { display: none; margin: 0 0 8px; padding: 8px 14px; border-radius: 12px; background: #FFF3CD; color: #856404; font-family: var(--f); font-size: 12px }
+        #clockBlock { display: none; position: fixed; inset: 0; z-index: 9999; background: rgba(40, 20, 10, .88); align-items: center; justify-content: center; padding: 16px }
+        #clockBlock .cb-card { max-width: 420px; width: 100%; background: #fff; border-radius: 16px; padding: 22px 18px; text-align: center; font-family: var(--f); color: var(--cocoa) }
+        #clockBlock .cb-title { font-family: var(--fb); font-size: 18px; color: #C84238; margin-bottom: 10px }
+        #clockBlock .cb-line { font-size: 14px; margin: 4px 0 }
+        #clockBlock .cb-btn { margin-top: 16px; width: 100%; padding: 14px; border: none; border-radius: 12px; background: var(--cocoa); color: #fff; font-family: var(--fb); font-size: 16px; cursor: pointer }
+        #backDateBanner .bd-exit { flex: none; background: #fff; color: #C84238; border: none; border-radius: 10px; padding: 8px 12px; font-family: var(--fb); font-size: 13px; cursor: pointer }
 
         .logout-btn {
             background: var(--bg);
@@ -3505,6 +3515,9 @@
             #deviceModeBadge { order: 3; margin: 0 !important; padding: 4px 10px !important; font-size: 12px !important }
             #headerClock { order: 4; padding: 0; font-size: 12px }
             #buildVer { order: 5; padding: 0 !important }
+            .app-header.bd-on { flex-wrap: wrap }
+            #backDateBanner { order: 99; flex-basis: 100% }
+            #clockBar { order: 98; flex-basis: 100% }
 
             .logout-btn {
                 order: 6;
@@ -4024,6 +4037,9 @@
         </div>
     </div>
 
+    <!-- L2-c: device clock block — shown only when the clock is verified wrong -->
+    <div id="clockBlock" role="alertdialog" aria-modal="true"></div>
+
     <!-- ══════════ MAIN APP ══════════ -->
     <div id="mainApp" role="application" aria-label="Puff Stick POS">
         <!-- App Header -->
@@ -4043,7 +4059,9 @@
             <div id="deviceModeBadge"
                 style="font-size:9px;font-family:var(--f);padding:1px 6px;border-radius:8px;margin-bottom:4px"></div>
             <div id="buildVer" style="font-family:var(--f);font-size:9px;color:var(--muted);padding:0 0 6px;opacity:.6">
-                build 20261028.0015</div>
+                build 20261029.0016</div>
+            <div id="backDateBanner" role="status" aria-live="polite"></div>
+            <div id="clockBar" role="status"></div>
         </div>
 
         <!-- PAGES (role=main wraps all tab pages) -->
@@ -4243,6 +4261,7 @@
                 </div>
                 <div id="closeResult"></div>
                 <div id="closeDayStatus"></div>
+                <div id="backDateEntry"></div>
                 <div class="divider"></div>
                 <span class="sec-lbl" id="exportLbl">📊 Export รายงาน</span>
                 <div class="export-grid" id="exportBlock">
@@ -4465,7 +4484,7 @@
         var gq = {};
         var _loginBranch = "";
         var _selectedDateOffset = 0;
-        var _closingPastDay = false;   // Issue3: true while nudge-driven back-date close is active
+        var _backDate = null;   // L2: {date, reason, scope:"close"|"full"} while a past business day is open for writing (replaces Issue3 _closingPastDay)
 
         // ── Backend Routing (identical to v9) ──
         function getSheetURL() {
@@ -4507,6 +4526,20 @@
             }
             return 0;
         }
+        // L2: calendar shift on canonical dd/mm/yyyy (Buddhist year, as todayISO returns)
+        function shiftDateStr(ds, n) {
+            var p = normDateStr(ds).split("/");
+            if (p.length !== 3) return ds;
+            var d = new Date(parseInt(p[2], 10) - 543, parseInt(p[1], 10) - 1, parseInt(p[0], 10), 12, 0, 0);
+            d.setDate(d.getDate() + n);
+            return normDateStr(d.getDate() + "/" + (d.getMonth() + 1) + "/" + (d.getFullYear() + 543));
+        }
+        // L2: single source for entry timestamps — in back-date mode the date part is the business day being filled
+        function entryTs() {
+            var now = new Date().toLocaleString("th-TH", { timeZone: "Asia/Bangkok" });
+            if (!_backDate) return now;
+            return _backDate.date + " " + now.split(" ").pop();
+        }
 
         function stateKey(branch, dateStr) {
             return "puff7_" + safeBranch(branch) + "_" + normDateStr(dateStr || todayISO());
@@ -4527,9 +4560,9 @@
                 gift_catalog: [], gift_stock: {}, gift_sales: []
             };
         }
-        function getPrevDayState(branch) {
+        function getPrevDayState(branch, beforeDate) {
             var prefix = "puff7_" + safeBranch(branch) + "_";
-            var today = todayISO();
+            var today = beforeDate ? normDateStr(beforeDate) : todayISO();   // L2: carry base = latest closed day before beforeDate
             function dateNum(ds) {
                 var p = ds.split("/");
                 if (p.length !== 3) return -1;
@@ -4559,15 +4592,14 @@
             if (!chosenKey) return null;
             try { return JSON.parse(localStorage.getItem(chosenKey)); } catch (e) { return null; }
         }
-        function newStateWithCarryOver(branch) {
+        function newStateWithCarryOver(branch, dateStr) {
             var state = newState(branch);
-            var prev = getPrevDayState(branch);
+            if (dateStr) state.date = normDateStr(dateStr);   // L2: a past-day state keys to its own date, never today
+            var prev = getPrevDayState(branch, dateStr);
+            var c = carryFrom(prev);
+            state.carry = c;   // L2: remembered so a later re-base can swap the inherited part only
             if (!prev) return state;
-            // Use single source of truth: getStockForState (handles 0 values correctly + packs fallback)
-            F.forEach(function (f) {
-                var frozen = getStockForState(prev, f.id);
-                state.stock[f.id].received_pieces = frozen;
-            });
+            F.forEach(function (f) { state.stock[f.id].received_pieces = c.stock[f.id]; });
             if (prev.pricePerPiece) state.pricePerPiece = prev.pricePerPiece;
             if (prev.fillingPrices) {
                 Object.keys(prev.fillingPrices).forEach(function (k) {
@@ -4577,12 +4609,21 @@
             if (prev.gift_catalog && prev.gift_catalog.length) {
                 state.gift_catalog = JSON.parse(JSON.stringify(prev.gift_catalog));
                 prev.gift_catalog.forEach(function (g) {
-                    var ps = prev.gift_stock && prev.gift_stock[g.id];
-                    var rem = ps ? Math.max(0, (ps.received || 0) - (ps.sold || 0)) : 0;
-                    state.gift_stock[g.id] = { received: rem, sold: 0 };
+                    state.gift_stock[g.id] = { received: c.gift[g.id] || 0, sold: 0 };
                 });
             }
             return state;
+        }
+        // L2: single source for what a day inherits from the latest closed day before it
+        // (frozen = getStockForState: handles 0 values + packs fallback; gift = received - sold)
+        function carryFrom(prev) {
+            var c = { stock: {}, gift: {} };
+            F.forEach(function (f) { c.stock[f.id] = prev ? getStockForState(prev, f.id) : 0; });
+            if (prev && prev.gift_catalog) prev.gift_catalog.forEach(function (g) {
+                var ps = prev.gift_stock && prev.gift_stock[g.id];
+                c.gift[g.id] = ps ? Math.max(0, (ps.received || 0) - (ps.sold || 0)) : 0;
+            });
+            return c;
         }
 
         function isEmptyState(state) {
@@ -4614,16 +4655,19 @@
                     if (dateStr || !isEmptyState(st)) return st;
                 } catch (e) { }
             }
-            if (dateStr) return newState(branch);
+            if (dateStr) return newStateWithCarryOver(branch, dateStr);   // L2: was newState() → date=today → save() wrote into today's key
             return newStateWithCarryOver(branch);
         }
         function save() {
             if (!currentBranch) return;
-            S.lastSaved = Date.now();
-            var payload = JSON.stringify(S);
-            localStorage.setItem(stateKey(currentBranch, S.date), payload);
+            persistState(S);
+        }
+        // Single write path for a day state (S or a re-based later day): local key + cloud queue
+        function persistState(st) {
+            st.lastSaved = Date.now();
+            localStorage.setItem(stateKey(currentBranch, st.date), JSON.stringify(st));
             localStorage.setItem("puff8_lastBranch", currentBranch);
-            queueCloudSync(currentBranch, S.date, S);
+            queueCloudSync(currentBranch, st.date, st);
         }
         // ── Issue3: business-day late-close (Rec C nudge) ──
         function hasDayActivity(st) {
@@ -4654,13 +4698,240 @@
             }
         }
         function enterPastDayClose(dateStr) {
-            _closingPastDay = true;
-            S = loadBranch(currentBranch, dateStr);
+            _backDate = { date: normDateStr(dateStr), reason: "ปิดยอดค้าง (แจ้งเตือนอัตโนมัติ)", scope: "close" };
+            S = loadBranch(currentBranch, _backDate.date);
             go("close");
-            showToast("กำลังปิดยอดวันที่ " + dateStr);
+            showToast("กำลังปิดยอดวันที่ " + _backDate.date);
+        }
+        // ── L2: back-date mode — owner only, sequential oldest-first, max 7 days, reason required ──
+        var BACKDATE_MAX_DAYS = 7;
+        function readDayState(dateStr) {
+            var raw = localStorage.getItem(stateKey(currentBranch, dateStr));
+            if (!raw) return null;
+            try { return JSON.parse(raw); } catch (e) { return null; }
+        }
+        // Oldest first: days after the latest closed day, within 7 days, before today.
+        // A day is selectable only when no earlier candidate has activity (blockedBy = that earlier day).
+        function backDateCandidates() {
+            var today = todayISO();
+            var prefix = "puff7_" + safeBranch(currentBranch) + "_";
+            var todayNum = dateSortKey(today), closedNum = 0;
+            for (var i = 0; i < localStorage.length; i++) {
+                var k = localStorage.key(i);
+                if (!k || k.indexOf(prefix) !== 0) continue;
+                var n = dateSortKey(k.slice(prefix.length));
+                if (!n || n >= todayNum || n <= closedNum) continue;
+                try { var cst = JSON.parse(localStorage.getItem(k)); if (cst && cst.is_closed === true) closedNum = n; } catch (e) { }
+            }
+            var out = [], blockedBy = "";
+            for (var j = BACKDATE_MAX_DAYS; j >= 1; j--) {
+                var ds = shiftDateStr(today, -j);
+                if (dateSortKey(ds) <= closedNum) continue;
+                var st = readDayState(ds);
+                if (st && st.is_closed === true) continue;
+                var act = hasDayActivity(st);
+                out.push({ date: ds, active: act, blockedBy: blockedBy });
+                if (!blockedBy && act) blockedBy = ds;
+            }
+            return out;
+        }
+        function canBackDate() {
+            if (!currentBranch || getDeviceMode() === "viewer") return false;
+            if (getSyncURL(currentBranch) === FRANCHISE_URL) return getRole() === "owner" && !!getTokenFor(currentBranch);
+            return true;   // owner branches: gated by HQ PIN at start (branch PIN is shared with staff)
+        }
+        function backDateNeedsHQPin() { return getSyncURL(currentBranch) !== FRANCHISE_URL; }
+        function renderBackDateEntry() {
+            var box = $("backDateEntry"); if (!box) return; clr(box);
+            if (_backDate || !canBackDate()) return;
+            var days = backDateCandidates();
+            var card = el("div", { cls: "card", css: "margin-top:12px" });
+            card.appendChild(el("span", { cls: "sec-lbl", txt: "🕘 ลงยอดย้อนหลัง (เจ้าของร้าน)" }));
+            if (!days.length) {
+                card.appendChild(el("div", { css: "font-size:12px;color:var(--muted);margin-top:6px", txt: "ไม่มีวันค้าง — " + BACKDATE_MAX_DAYS + " วันล่าสุดปิดครบแล้ว" }));
+                box.appendChild(card); return;
+            }
+            card.appendChild(el("div", { css: "font-size:12px;color:var(--muted);margin:6px 0", txt: "เลือกวัน (ต้องทำวันเก่าสุดที่มีข้อมูลก่อน · • = มีข้อมูลแล้ว)" }));
+            var picked = { date: "" };
+            var row = el("div", { css: "display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px" });
+            days.forEach(function (d) {
+                var b = el("button", { cls: "abtn-outline", "data-date": d.date, css: "width:auto;display:inline-block;padding:8px 12px", txt: d.date + (d.active ? " •" : "") });
+                if (d.blockedBy) { b.disabled = true; b.title = "ปิดวันที่ " + d.blockedBy + " ก่อน"; b.style.opacity = ".4"; }
+                row.appendChild(b);
+            });
+            row.onclick = function (ev) {
+                var t = ev.target;
+                var ds = t && t.getAttribute ? t.getAttribute("data-date") : "";
+                if (!ds || t.disabled) return;
+                picked.date = ds;
+                row.querySelectorAll("button").forEach(function (x) { x.style.borderColor = (x === t) ? "#C84238" : ""; });
+            };
+            card.appendChild(row);
+            var rIn = el("input", { cls: "lf-input", type: "text", maxlength: "120", placeholder: "เหตุผล เช่น พนักงานลืมบันทึก", autocomplete: "off" });
+            card.appendChild(rIn);
+            var pIn = null;
+            if (backDateNeedsHQPin()) {
+                pIn = el("input", { cls: "lf-input", type: "password", inputmode: "numeric", maxlength: "6", placeholder: "HQ PIN", autocomplete: "off" });
+                card.appendChild(pIn);
+            }
+            var startBtn = el("button", { cls: "abtn-outline", txt: "เริ่มลงยอดย้อนหลัง" });
+            startBtn.onclick = function () {
+                if (!picked.date) { showToast("เลือกวันก่อน", true); return; }
+                var reason = rIn.value.trim();
+                if (reason.length < 4) { showToast("กรุณาระบุเหตุผล", true); return; }
+                if (!pIn) { enterBackDate(picked.date, reason); return; }
+                var pin = pIn.value.trim();
+                if (pin.length < 4) { showToast("ใส่ HQ PIN ก่อน", true); return; }
+                startBtn.disabled = true; startBtn.textContent = "กำลังตรวจสอบ...";
+                hqAuth(pin, function () { enterBackDate(picked.date, reason); }, function (why) {
+                    startBtn.disabled = false; startBtn.textContent = "เริ่มลงยอดย้อนหลัง";
+                    if (why !== "net") pIn.value = "";
+                    showToast(why === "net" ? "เชื่อมต่อไม่ได้ ลองใหม่" : "PIN ไม่ถูกต้อง", true);
+                });
+            };
+            card.appendChild(startBtn);
+            box.appendChild(card);
+        }
+        function enterBackDate(dateStr, reason) {
+            var ds = normDateStr(dateStr);
+            var ok = backDateCandidates().some(function (d) { return d.date === ds && !d.blockedBy; });   // re-validate at write time
+            if (!ok) { showToast("วันที่ " + ds + " ลงยอดย้อนหลังไม่ได้", true); renderBackDateEntry(); return; }
+            var st = loadBranch(currentBranch, ds);
+            if (!hasDayActivity(st)) st = newStateWithCarryOver(currentBranch, ds);   // empty/stale row (e.g. wrong device clock) → rebuild carry
+            if (!st.backdate_log) st.backdate_log = [];
+            var staff = getStaff();
+            st.backdate_log.push({ reason: reason, by: staff.nick || staff.name || "", at: new Date().toLocaleString("th-TH", { timeZone: "Asia/Bangkok" }) });
+            _backDate = { date: ds, reason: reason, scope: "full" };
+            S = st;
+            save();
+            go("home");
+            showToast("กำลังลงยอดวันที่ " + ds);
+        }
+        // L2: after closing closedDate, re-base every later UNCLOSED day up to today on the new latest closed day.
+        // Only the inherited part changes: received += newCarry - oldCarry. Own receipts/fry/sales stay.
+        function recarryForward(closedDate) {
+            var todayNum = dateSortKey(todayISO()), n = 0;
+            var ds = shiftDateStr(closedDate, 1);
+            for (var guard = 0; guard < 31 && dateSortKey(ds) <= todayNum; guard++, ds = shiftDateStr(ds, 1)) {
+                var st = readDayState(ds);
+                if (!st || st.is_closed === true || !st.stock) continue;
+                var c = carryFrom(getPrevDayState(currentBranch, ds));
+                var hadCarry = !!st.carry;
+                var old = st.carry || legacyCarry(st);
+                F.forEach(function (f) {
+                    if (!st.stock[f.id]) st.stock[f.id] = { received_pieces: 0, fry_out: 0, sold: 0 };
+                    var delta = (c.stock[f.id] || 0) - ((old.stock && old.stock[f.id]) || 0);
+                    st.stock[f.id].received_pieces = Math.max(0, (st.stock[f.id].received_pieces || 0) + delta);
+                });
+                if (hadCarry && st.gift_stock) Object.keys(c.gift).forEach(function (g) {
+                    if (!st.gift_stock[g]) return;
+                    var gd = (c.gift[g] || 0) - ((old.gift && old.gift[g]) || 0);
+                    st.gift_stock[g].received = Math.max(0, (st.gift_stock[g].received || 0) + gd);
+                });
+                st.carry = c;
+                persistState(st);
+                n++;
+            }
+            return n;
+        }
+        // States created before 0016 have no .carry: inherited = received - sum(stock_log). Gift is left as-is.
+        function legacyCarry(st) {
+            var c = { stock: {}, gift: {} };
+            F.forEach(function (f) {
+                var r = (st.stock[f.id] && st.stock[f.id].received_pieces) || 0;
+                (st.stock_log || []).forEach(function (e) {
+                    (e.items || []).forEach(function (it) { if (it.id === f.id) r -= (it.pieces || 0); });
+                });
+                c.stock[f.id] = Math.max(0, r);
+            });
+            return c;
+        }
+        // L2: closing a back day → re-base later days, then offer the next back day or return to today
+        function afterBackDateClose() {
+            var closed = S.date, reason = _backDate.reason, full = _backDate.scope === "full";
+            var n = recarryForward(closed);
+            var next = full ? backDateCandidates().filter(function (d) { return !d.blockedBy; })[0] : null;
+            if (next && confirm("ปิดวันที่ " + closed + " แล้ว\nลงยอดวันถัดไป (" + next.date + ") ต่อเลยไหม?")) {
+                _backDate = null;
+                enterBackDate(next.date, reason);
+                return;
+            }
+            restoreToday();
+            if (n) showToast("✓ ปรับสต๊อกยกมาให้วันถัดไปแล้ว " + n + " วัน");
+        }
+        // ── L2-c: device clock check — same-origin HEAD, read the Date header. Single source: _clock ──
+        var CLOCK_MAX_SKEW_MS = 5 * 60 * 1000;
+        var CLOCK_FRESH_MS = 10 * 60 * 1000;
+        var _clock = { state: "unknown", skew: 0, at: -1e12 };   // at = performance.now() (immune to clock edits)
+        function clockFresh() { return performance.now() - _clock.at < CLOCK_FRESH_MS; }
+        function clockBlocks() { return _clock.state === "bad" && getDeviceMode() !== "viewer"; }
+        function checkDeviceClock(cb) {
+            var done = false;
+            function finish(state, server) {
+                if (done) return; done = true;
+                _clock.state = state; _clock.at = performance.now();
+                _clock.skew = server ? Date.now() - server : 0;
+                renderClockUI();
+                if (cb) cb(state);
+            }
+            if (!navigator.onLine || !window.fetch || location.protocol === "file:") { finish("offline", 0); return; }   // file:// has no server clock
+            setTimeout(function () { finish("offline", 0); }, 5000);
+            fetch(location.href.split("#")[0], { method: "HEAD", cache: "no-store" })
+                .then(function (r) {
+                    var srv = Date.parse((r && r.headers && r.headers.get("Date")) || "");
+                    if (!srv) { finish("offline", 0); return; }
+                    finish(Math.abs(Date.now() - srv) > CLOCK_MAX_SKEW_MS ? "bad" : "ok", srv);
+                })
+                .catch(function () { finish("offline", 0); });
+        }
+        function fmtClock(ms) {
+            return new Date(ms).toLocaleString("th-TH", { timeZone: "Asia/Bangkok", day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
+        }
+        function syncHeaderWrap() {
+            var hdr = document.querySelector(".app-header"); if (!hdr) return;
+            var cb = $("clockBar");
+            hdr.classList.toggle("bd-on", !!_backDate || !!(cb && cb.style.display === "block"));
+        }
+        function renderClockUI() {
+            var bar = $("clockBar");
+            if (bar) {
+                var off = _clock.state === "offline";
+                bar.style.display = off ? "block" : "none";
+                bar.textContent = off ? "📶 ออฟไลน์ — ตรวจเวลาเครื่องไม่ได้ ตรวจวันที่บนเครื่องให้ถูกก่อนบันทึก" : "";
+            }
+            syncHeaderWrap();
+            var ov = $("clockBlock"); if (!ov) return; clr(ov);
+            if (!clockBlocks()) { ov.style.display = "none"; return; }
+            var mins = Math.round(Math.abs(_clock.skew) / 60000);
+            var diffTxt = mins >= 1440 ? Math.round(mins / 1440) + " วัน" : (mins >= 60 ? Math.round(mins / 60) + " ชั่วโมง" : mins + " นาที");
+            var card = el("div", { cls: "cb-card" });
+            card.appendChild(el("div", { cls: "cb-title", txt: "⛔ วันเวลาของเครื่องไม่ตรง" }));
+            card.appendChild(el("div", { cls: "cb-line", txt: "เครื่องนี้: " + fmtClock(Date.now()) }));
+            card.appendChild(el("div", { cls: "cb-line", txt: "เวลาจริง: " + fmtClock(Date.now() - _clock.skew) + " (ต่าง " + diffTxt + ")" }));
+            card.appendChild(el("div", { cls: "cb-line", css: "margin-top:10px", txt: "ไปที่ ตั้งค่า → วันที่และเวลา → เปิด “ตั้งเวลาอัตโนมัติ” แล้วกลับมากดตรวจอีกครั้ง" }));
+            card.appendChild(el("div", { cls: "cb-line", css: "font-size:12px;color:var(--muted)", txt: "ระหว่างนี้บันทึกไม่ได้ เพื่อกันยอดลงผิดวัน" }));
+            var b = el("button", { cls: "cb-btn", txt: "ตรวจอีกครั้ง" });
+            b.onclick = function () { b.disabled = true; b.textContent = "กำลังตรวจ..."; checkDeviceClock(); };
+            card.appendChild(b);
+            ov.appendChild(card);
+            ov.style.display = "flex";
+        }
+        function exitBackDate() {
+            if (!_backDate) return;
+            if (!confirm("ออกจากโหมดลงยอดย้อนหลัง?\nข้อมูลของวันที่ " + _backDate.date + " ที่บันทึกแล้วยังอยู่ครบ")) return;
+            restoreToday();
+        }
+        function renderBackDateBanner() {
+            var bar = $("backDateBanner"); if (!bar) return; clr(bar);
+            if (!_backDate) { bar.style.display = "none"; syncHeaderWrap(); return; }
+            bar.style.display = "flex"; syncHeaderWrap();
+            bar.appendChild(el("span", { txt: (_backDate.scope === "close" ? "⚠️ กำลังปิดยอดวันที่ " : "⚠️ กำลังลงยอดวันที่ ") + _backDate.date }));
+            var x = el("button", { cls: "bd-exit", txt: "ออกจากโหมดนี้" });
+            x.onclick = exitBackDate;
+            bar.appendChild(x);
         }
         function restoreToday() {
-            _closingPastDay = false;
+            _backDate = null;
             var tKey = stateKey(currentBranch, todayISO());
             var tRaw = localStorage.getItem(tKey);
             var tState = null; try { tState = tRaw ? JSON.parse(tRaw) : null; } catch (e) { tState = null; }
@@ -4968,6 +5239,8 @@
             localStorage.setItem("puff10_loginStaff", JSON.stringify({ name: name, nick: nick, phone: phone }));
             // Show loading, prefetch cloud state, then complete login
             var btn = $("loginBtn"); if (btn) { btn.disabled = true; btn.textContent = "กำลังโหลด..."; }
+            if (!clockFresh()) { checkDeviceClock(function () { if (btn) { btn.disabled = false; btn.textContent = "เริ่มใช้งาน"; } doLogin(); }); return; }   // L2-c
+            if (clockBlocks()) { if (btn) { btn.disabled = false; btn.textContent = "เริ่มใช้งาน"; } return; }
             function finishLogin() {
                 if (btn) { btn.disabled = false; btn.textContent = "เริ่มใช้งาน"; }
                 setBranch(_loginBranch);
@@ -4990,7 +5263,7 @@
                 // recover/refresh in background, then re-render current tab (mirror refreshFromCloud).
                 prefetchCloudState(_loginBranch, function () {
                     if (!currentBranch) return;
-                    if (_closingPastDay) { updateSyncIcon(); return; }   // Issue3: don't clobber back-date close
+                    if (_backDate) { updateSyncIcon(); return; }   // L2: never swap S away from an open back-date day
                     S = loadBranch(currentBranch);
                     if (currentTab === "home") { renderHome(); }
                     else if (currentTab === "sell") { renderSell(); renderDeliveryInline(); renderDeliveryTodaySummary(); renderGiftSell(); updBar(); }
@@ -5027,6 +5300,7 @@
         function doLogout() {
             stopHQPolling();
             pauseTimer();
+            _backDate = null; renderBackDateBanner();
             clearBranchAuth();
             renderRecentChips();
             $("mainApp").style.display = "none";
@@ -5139,6 +5413,7 @@
             if (currentTab === "hq" && tab !== "hq") { stopHQPolling(); }
             if (tab === "hq" && getDeviceMode() !== "viewer") { showToast("หน้านี้สำหรับ HQ เท่านั้น", true); return; }
             if (tab === "hist" && denyStaff("hist")) return;
+            if (_backDate && _backDate.scope === "close" && tab !== "close") { showToast("กำลังปิดยอดวันที่ " + _backDate.date + " — กด ออกจากโหมดนี้ ก่อน", true); return; }
             if (!currentBranch && tab !== "home") { showToast("กรุณา login ก่อนใช้งาน", true); return; }
             var prevIdx = TABS.indexOf(currentTab);   // capture BEFORE updating
             if (tab !== currentTab && _subTab[tab]) { setSubTab(tab, "puff"); }   // U2: entering sell/stock always starts on พัฟสติ๊ก
@@ -5155,15 +5430,16 @@
             });
             moveNav(idx, prevIdx);
             syncActionBars();
+            renderBackDateBanner();
             if (tab === "home") {
                 // Defensive: reload S from disk so we always see latest saved state
-                if (currentBranch) { S = loadBranch(currentBranch); }
+                if (currentBranch) { S = _backDate ? loadBranch(currentBranch, _backDate.date) : loadBranch(currentBranch); }
                 renderHome();
             }
             if (tab === "sell") { renderStaffChip(); renderPriceBanner(); renderSell(); renderDeliveryInline(); renderDeliveryTodaySummary(); renderGiftSell(); updBar(); }
             if (tab === "fry") { renderFryHero(); renderFryChart(); renderFryPage(); }
             if (tab === "stock") { renderStockTop3(); renderStackChart(); renderStockPage(); }
-            if (tab === "close") { renderClose(); renderCloseDayStatus(); renderOwnerSettings(); }
+            if (tab === "close") { renderClose(); renderCloseDayStatus(); renderOwnerSettings(); renderBackDateEntry(); }
             if (tab === "hist") { renderHist(); }
             if (tab === "hq") { renderHQTab(); }
         }
@@ -5182,6 +5458,7 @@
 
         function renderDateStrip() {
             var box = $("homeDateStrip"); if (!box) return; clr(box);
+            if (_backDate) return;   // L2: no date pills while a back day is open
             var strip = el("div", { cls: "date-strip" });
             var today = new Date();
             var prefix = "puff7_" + safeBranch(currentBranch) + "_";
@@ -5202,7 +5479,7 @@
                         if (offset === 0) {
                             // Click today: reset to live S
                             _selectedDateOffset = 0;
-                            _closingPastDay = false;   // Issue3: leaving back-date close
+                            if (_backDate) { exitBackDate(); return; }   // L2: "today" pill = leave back-date
                             S = loadBranch(currentBranch);
                             renderHome();
                             return;
@@ -5257,7 +5534,7 @@
         function renderSalesHero() {
             // Delegate to unified renderer — single source of truth
             if (!S) return;
-            renderHeroForState(S, null);
+            renderHeroForState(S, _backDate ? _backDate.date : null);   // L2: label the open back day
         }
 
         function calcWeekAvg() {
@@ -5480,7 +5757,7 @@
 
             items.forEach(function (it) { S.stock[it.id].sold += it.pieces; });
 
-            var ts = new Date().toLocaleString("th-TH", { timeZone: "Asia/Bangkok" });
+            var ts = entryTs();
             var record = {
                 ts: ts, app: _dlvApp,
                 grossAmount: gross, netAmount: net,
@@ -5758,7 +6035,7 @@
             F.forEach(function (f) { if ((sq[f.id] || 0) > 0) items.push({ id: f.id, name: f.n, code: f.code, pieces: sq[f.id], price: getPrice(f.id) }); });
             if (!items.length || !currentBranch) return;
             var tp = 0, ta = 0; items.forEach(function (it) { tp += it.pieces; ta += it.pieces * it.price; });
-            var ts = new Date().toLocaleString("th-TH", { timeZone: "Asia/Bangkok" });
+            var ts = entryTs();
             items.forEach(function (it) { S.stock[it.id].sold += it.pieces; });
             S.sales.push({ ts: ts, location: currentBranch, staff: staff, pricePerPiece: (S.pricePerPiece || 25), items: items, totalPieces: tp, totalAmount: ta });
             S.lastStaff = staff; save();
@@ -5909,7 +6186,7 @@
             });
             if (err) { showToast("❌ " + err, true); return; }
             items.forEach(function (it) { S.stock[it.id].fry_out += it.pieces; });
-            var ts = new Date().toLocaleString("th-TH", { timeZone: "Asia/Bangkok" });
+            var ts = entryTs();
             S.fry_log.push({ ts: ts, items: items }); save();
             showToast("✅ บันทึกรอบทอดแล้ว");
             fetch(getSheetURL(), {
@@ -6058,7 +6335,7 @@
             });
             if (!items.length) { showToast("ยังไม่ได้ใส่จำนวน", true); return; }
             items.forEach(function (it) { S.stock[it.id].received_pieces += it.pieces; });
-            var ts = new Date().toLocaleString("th-TH", { timeZone: "Asia/Bangkok" });
+            var ts = entryTs();
             S.stock_log.push({ ts: ts, items: items, is_correction: false }); save();
             renderStockTop3(); renderStackChart(); renderStockPage(); renderSell();
             showToast("✅ รับสต๊อก " + items.reduce(function (a, it) { return a + it.pieces; }, 0) + " ชิ้น");
@@ -6086,7 +6363,7 @@
             F.forEach(function (f) { var v = parseInt(($("cpi-" + f.id) || { value: "0" }).value) || 0; if (v !== 0) items.push({ id: f.id, pieces: v }); });
             if (!items.length) { showToast("ยังไม่ได้ใส่จำนวน", true); return; }
             items.forEach(function (it) { S.stock[it.id].received_pieces = Math.max(0, S.stock[it.id].received_pieces + it.pieces); });
-            var ts = new Date().toLocaleString("th-TH", { timeZone: "Asia/Bangkok" });
+            var ts = entryTs();
             S.stock_log.push({ ts: ts, items: items, is_correction: true, reason: reason });
             save(); hideStockCorrect(); renderStockTop3(); renderStackChart(); renderStockPage(); renderSell();
             showToast("✅ บันทึกการแก้ไขแล้ว");
@@ -6188,7 +6465,7 @@
 
         function addWithdraw() {
             if (!S) return;
-            var ts = new Date().toLocaleString("th-TH", { timeZone: "Asia/Bangkok" });
+            var ts = entryTs();
             S.withdrawals.push({ amount: 0, reason: "", ts: ts }); save(); renderWithdrawals(); calcClose();
         }
         function removeWithdraw(i) { S.withdrawals.splice(i, 1); save(); renderWithdrawals(); calcClose(); }
@@ -6360,6 +6637,8 @@
 
         function confirmCloseDay() {
             if (!S) return;
+            if (!clockFresh()) { checkDeviceClock(function () { confirmCloseDay(); }); return; }   // L2-c: re-check right before closing
+            if (clockBlocks()) return;
             if (S.is_closed) { showToast("วันนี้ปิดไปแล้ว", true); return; }
             // Validate: must have entered cash/transfer amounts
             var cm = cashOf(S); var ca = cm.cash; var tr = cm.transfer;
@@ -6372,14 +6651,14 @@
                 showToast("นับเหลือหน้าตู้ให้ครบทุกไส้ก่อนปิดวัน", true);
                 return;
             }
-            if (!confirm("ยืนยันปิดวันนี้?\n\nหลังยืนยันจะไม่สามารถแก้ไขข้อมูลของวันนี้ได้อีก\nและระบบจะใช้ข้อมูลนี้เป็นฐานของวันถัดไป")) return;
+            if (!confirm("ยืนยันปิดวัน" + (_backDate ? "ที่ " + S.date : "นี้") + "?\n\nหลังยืนยันจะไม่สามารถแก้ไขข้อมูลของวันนี้ได้อีก\nและระบบจะใช้ข้อมูลนี้เป็นฐานของวันถัดไป")) return;
             S.is_closed = true;
             S.closedAt = Date.now();
             save();
             renderCloseDayStatus();
             showToast("✓ ปิดวันเรียบร้อย");
             sendEmail(S, true);   // auto report: server picks the recipient (owner email / branch owner)
-            if (_closingPastDay) restoreToday();   // Issue3: return to today after late close
+            if (_backDate) afterBackDateClose();   // L2/Issue3: re-base later days, then next back day or today
         }
 
         function renderHist() {
@@ -6874,7 +7153,7 @@
             var items = []; S.gift_catalog.forEach(function (g) { var qty = gq[g.id] || 0; if (qty > 0) items.push({ id: g.id, name: g.name, qty: qty, price: g.price, total: qty * g.price }); });
             if (!items.length) return;
             var grandTotal = items.reduce(function (a, it) { return a + it.total; }, 0);
-            var ts = new Date().toLocaleString("th-TH", { timeZone: "Asia/Bangkok" });
+            var ts = entryTs();
             items.forEach(function (it) { if (S.gift_stock[it.id]) S.gift_stock[it.id].sold += it.qty; });
             S.gift_sales.push({ ts: ts, staff: staff, items: items, grandTotal: grandTotal }); save();
             showToast("✅ บันทึกของฝาก ฿" + grandTotal.toLocaleString());
@@ -6979,6 +7258,7 @@
             renderRecentChips();
             renderDeviceModeToggle();  // Task 1: show mode toggle on login screen
             applyHQTabVisibility();    // hide HQ tab for writer devices
+            checkDeviceClock();        // L2-c: verify device clock at start (login screen included)
             var dmt = $("deviceModeToggle");
             if (dmt) dmt.addEventListener("click", onDeviceModeToggleClick);
             document.addEventListener("click", onSubTabClick);   // U2a sub-tabs (event delegation)
@@ -7202,13 +7482,15 @@
             }
         }
 
-        window.addEventListener("online", function () { flushSyncQueue(); updateSyncIcon(); });
+        window.addEventListener("online", function () { flushSyncQueue(); updateSyncIcon(); checkDeviceClock(); });
+        setInterval(function () { if (!clockFresh()) checkDeviceClock(); }, 60000);   // L2-c: long-open tablets
         window.addEventListener("offline", function () { updateSyncIcon(); });
 
         // ── Cloud refresh on app re-open (not just login) ──
         var _lastCloudRefresh = 0;
         function refreshFromCloud() {
             if (!currentBranch || !navigator.onLine) return;
+            if (_backDate) return;   // L2: never swap S away from an open back-date day
             var isViewer = getDeviceMode() === "viewer";
             if (!isViewer) {
                 var curState = loadBranch(currentBranch);
@@ -7228,7 +7510,7 @@
         }
         window.addEventListener("pageshow", function () { refreshFromCloud(); });
         document.addEventListener("visibilitychange", function () {
-            if (document.visibilityState === "visible") refreshFromCloud();
+            if (document.visibilityState === "visible") { checkDeviceClock(); refreshFromCloud(); }
         });
 
         // ═══════════════════════════════════════════════════
@@ -7273,6 +7555,18 @@
         }
 
 
+        // Single source for the HQ PIN check (HQ tab + L2 back-date gate). onFail("bad"|"net")
+        function hqAuth(pin, onOk, onFail) {
+            fetch(OWNER_URL, {
+                method: "POST", mode: "cors",
+                headers: { "Content-Type": "text/plain;charset=utf-8" },
+                body: JSON.stringify({ type: "hq_auth", pin: pin })
+            })
+                .then(function (r) { return r.json(); })
+                .then(function (d) { if (d && d.ok) onOk(d); else onFail("bad"); })
+                .catch(function () { onFail("net"); });
+        }
+
         function renderHQEnterPin(pg) {
             var wrap = el("div", { css: "max-width:400px;margin:0 auto;padding:24px 16px" });
             wrap.appendChild(el("div", { txt: "HQ Dashboard", css: "font-family:var(--fb);font-size:20px;color:var(--cocoa);margin-bottom:6px" }));
@@ -7283,28 +7577,16 @@
                 var pin = inp.value.trim();
                 if (pin.length < 4) { showToast("ใส่ PIN ก่อน", true); return; }
                 btn.disabled = true; btn.textContent = "กำลังตรวจสอบ...";
-                fetch(OWNER_URL, {
-                    method: "POST", mode: "cors",
-                    headers: { "Content-Type": "text/plain;charset=utf-8" },
-                    body: JSON.stringify({ type: "hq_auth", pin: pin })
-                })
-                    .then(function (r) { return r.json(); })
-                    .then(function (d) {
-                        if (d && d.ok) {
-                            localStorage.setItem("puff10_hqSession", String(Date.now()));
-                            localStorage.setItem("puff10_hqToken", (d && d.token) || "");
-                            _hqAuthed = true;
-                            renderHQTab();
-                        } else {
-                            showToast("PIN ไม่ถูกต้อง", true);
-                            inp.value = "";
-                            btn.disabled = false; btn.textContent = "เข้าสู่ระบบ HQ";
-                        }
-                    })
-                    .catch(function () {
-                        showToast("เชื่อมต่อไม่ได้ ลองใหม่", true);
-                        btn.disabled = false; btn.textContent = "เข้าสู่ระบบ HQ";
-                    });
+                hqAuth(pin, function (d) {
+                    localStorage.setItem("puff10_hqSession", String(Date.now()));
+                    localStorage.setItem("puff10_hqToken", (d && d.token) || "");
+                    _hqAuthed = true;
+                    renderHQTab();
+                }, function (why) {
+                    showToast(why === "net" ? "เชื่อมต่อไม่ได้ ลองใหม่" : "PIN ไม่ถูกต้อง", true);
+                    if (why !== "net") inp.value = "";
+                    btn.disabled = false; btn.textContent = "เข้าสู่ระบบ HQ";
+                });
             };
             inp.addEventListener("keyup", function (ev) { if (ev.key === "Enter") btn.onclick(); });
             wrap.appendChild(inp); wrap.appendChild(btn);
