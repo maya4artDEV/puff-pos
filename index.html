@@ -9,8 +9,13 @@
     <meta http-equiv="Expires" content="0">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="default">
-    <meta name="build-version" content="20261029.0016">
-    <title>Puff Stick POS v12 · 20261029.0016</title>
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-title" content="Puff POS">
+    <meta name="theme-color" content="#6FA3D6">
+    <link rel="manifest" href="manifest.webmanifest">
+    <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+    <meta name="build-version" content="20261030.0017">
+    <title>Puff Stick POS v12 · 20261030.0017</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link
@@ -381,6 +386,9 @@
             font-size: 11px;
             color: var(--muted)
         }
+
+        .build-tap{cursor:pointer;text-decoration:underline dotted;padding:10px 8px;margin:-4px 0}
+        #buildVer.build-tap{padding:10px 0 !important}
 
         /* ── APP HEADER ── */
         #mainApp {
@@ -3514,7 +3522,7 @@
             #syncIcon { order: 2; margin: 0 !important }
             #deviceModeBadge { order: 3; margin: 0 !important; padding: 4px 10px !important; font-size: 12px !important }
             #headerClock { order: 4; padding: 0; font-size: 12px }
-            #buildVer { order: 5; padding: 0 !important }
+            #buildVer { order: 5 }
             .app-header.bd-on { flex-wrap: wrap }
             #backDateBanner { order: 99; flex-basis: 100% }
             #clockBar { order: 98; flex-basis: 100% }
@@ -4034,6 +4042,7 @@
                 <div id="deviceModeToggle" style="display:flex;gap:6px"></div>
             </div>
             <div class="login-footer">ระบบจำข้อมูลในเครื่องนี้</div>
+            <div class="login-footer build-tap" id="loginBuild"></div>
         </div>
     </div>
 
@@ -4059,7 +4068,7 @@
             <div id="deviceModeBadge"
                 style="font-size:9px;font-family:var(--f);padding:1px 6px;border-radius:8px;margin-bottom:4px"></div>
             <div id="buildVer" style="font-family:var(--f);font-size:9px;color:var(--muted);padding:0 0 6px;opacity:.6">
-                build 20261029.0016</div>
+                build 20261030.0017</div>
             <div id="backDateBanner" role="status" aria-live="polite"></div>
             <div id="clockBar" role="status"></div>
         </div>
@@ -5407,6 +5416,25 @@
             setSubTab(pg.id.replace("page-", ""), b.getAttribute("data-sub"));
             window.scrollTo(0, 0);
         }
+
+        // ── PWA (0017): in-app reload (standalone has no reload button) ──
+        function pwaPendingCount() { return syncPending; }
+        function pwaBuildStamp() { var m = document.querySelector('meta[name="build-version"]'); return m ? m.getAttribute("content") : ""; }
+        function pwaDoReload() { location.reload(); }
+        function pwaReload() {
+            var pend = pwaPendingCount();
+            var msg = "\u0E42\u0E2B\u0E25\u0E14\u0E2B\u0E19\u0E49\u0E32\u0E43\u0E2B\u0E21\u0E48\u0E40\u0E1E\u0E37\u0E48\u0E2D\u0E2D\u0E31\u0E1B\u0E40\u0E14\u0E15\u0E40\u0E27\u0E2D\u0E23\u0E4C\u0E0A\u0E31\u0E19?\n\u0E23\u0E32\u0E22\u0E01\u0E32\u0E23\u0E17\u0E35\u0E48\u0E22\u0E31\u0E07\u0E44\u0E21\u0E48\u0E01\u0E14\u0E1A\u0E31\u0E19\u0E17\u0E36\u0E01\u0E08\u0E30\u0E2B\u0E32\u0E22 (\u0E02\u0E49\u0E2D\u0E21\u0E39\u0E25\u0E17\u0E35\u0E48\u0E1A\u0E31\u0E19\u0E17\u0E36\u0E01\u0E41\u0E25\u0E49\u0E27\u0E2D\u0E22\u0E39\u0E48\u0E04\u0E23\u0E1A)";
+            if (pend > 0) msg = msg + "\n\n\u26A0\uFE0F \u0E21\u0E35 " + pend + " \u0E23\u0E32\u0E22\u0E01\u0E32\u0E23\u0E23\u0E2D\u0E2A\u0E48\u0E07\u0E02\u0E36\u0E49\u0E19\u0E04\u0E25\u0E32\u0E27\u0E14\u0E4C \u2014 \u0E08\u0E30\u0E2A\u0E48\u0E07\u0E15\u0E48\u0E2D\u0E43\u0E2B\u0E49\u0E2B\u0E25\u0E31\u0E07\u0E40\u0E02\u0E49\u0E32\u0E43\u0E2B\u0E21\u0E48";
+            if (!confirm(msg)) return;
+            pwaDoReload();
+        }
+        function pwaWireBuildLabels() {
+            var stamp = pwaBuildStamp();
+            var lb = $("loginBuild"); if (lb) lb.textContent = "build " + stamp + " \u00B7 \u0E41\u0E15\u0E30\u0E40\u0E1E\u0E37\u0E48\u0E2D\u0E42\u0E2B\u0E25\u0E14\u0E43\u0E2B\u0E21\u0E48";
+            var bv = $("buildVer"); if (bv) { bv.classList.add("build-tap"); bv.textContent = "build " + stamp + " \u00B7 \u0E41\u0E15\u0E30\u0E40\u0E1E\u0E37\u0E48\u0E2D\u0E42\u0E2B\u0E25\u0E14\u0E43\u0E2B\u0E21\u0E48"; }
+            [lb, bv].forEach(function (n) { if (n) n.addEventListener("click", pwaReload); });
+        }
+        pwaWireBuildLabels();
 
         // ── TAB NAVIGATION ──
         function go(tab) {

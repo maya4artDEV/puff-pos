@@ -16,7 +16,11 @@ const { chromium } = require('playwright');
   const R = await p.evaluate(async () => {
     const t = []; const ok = (id, cond, info) => t.push([id, !!cond, info === undefined ? '' : String(info)]);
     window.confirm = () => true;
-    ok('T01 build stamp', document.title.indexOf('20261029.0016') > 0, document.title);
+    const bMeta = document.querySelector('meta[name="build-version"]');
+    const bStamp = bMeta ? bMeta.getAttribute('content') : '';
+    const bvEl = document.getElementById('buildVer');
+    const bvText = bvEl ? bvEl.textContent : '';
+    ok('T01 build stamp', /^\d{8}\.\d{4}$/.test(bStamp) && document.title.indexOf(bStamp) > 0 && bvText.indexOf(bStamp) > 0, bStamp);
     ok('T02 shiftDateStr month/leap/year', shiftDateStr('01/11/2569', -1) === '31/10/2569' && shiftDateStr('01/03/2567', -1) === '29/02/2567' && shiftDateStr('31/12/2569', 1) === '01/01/2570');
     localStorage.clear();
     const br = 'SBR-01', T = todayISO(), d = n => shiftDateStr(T, n);
