@@ -23,3 +23,8 @@ _archive/
 backend/
 *.gs
 *.bak
+
+# planning docs live in the Claude Project + Context Hub, not on public Pages
+docs/*
+!docs/*.pdf
+claude/
