@@ -2,6 +2,8 @@
 // Serves index.html from a local http server (real Date header → clock check passes). Both Apps Script URLs are
 // answered by a stub that returns what the audited 0018-a server returns; every request is recorded.
 // b1: routing single source · branchInfo from the server · forced re-login once · getRole fail-closed · read token.
+// b2: login tabs company / franchise / event · kind sent · franchise code rule + upper-case · one error-text map ·
+//     tab + branch restored after logout / reload · recent chips · client code rule = server rule · KYI-07.
 const path = require('path'), fs = require('fs'), http = require('http');
 const { chromium } = require('playwright');
 
@@ -37,6 +39,7 @@ function stub(route) {
   let b;
   try { b = await chromium.launch({ channel: 'chrome' }); } catch (e) { b = await chromium.launch(); }
   const p = await b.newPage();
+  p.setDefaultTimeout(8000);   // a missing element fails fast instead of hanging 30 s
   const errs = [], R = [];
   const ok = (id, cond, info) => R.push([id, !!cond, info === undefined ? '' : String(info)]);
   p.on('pageerror', e => errs.push(e.message));
@@ -49,14 +52,18 @@ function stub(route) {
   });
   p.on('dialog', d => d.accept());
 
-  async function login(branch, pin) {
+  // Real UI path: fill the staff fields, tap the tab, pick / type the branch, tap เริ่มใช้งาน.
+  async function fillForm(branch, pin, tab) {
     await p.fill('#loginName', 'Test Tester'); await p.fill('#loginNick', 'T'); await p.fill('#loginPhone', '0800000000');
-    await p.evaluate(br => {
-      var sel = document.getElementById('loginBranchSel');
-      if (BRANCH_CODES.some(function (x) { return x.code === br; })) { sel.value = br; onLoginSelectChange(); }
-      else { var fi = document.getElementById('loginFreeInput'); fi.value = br; onLoginFreeInput(); }
-    }, branch);
+    const isCo = await p.evaluate(br => BRANCH_CODES.some(function (x) { return x.code === br; }), branch);
+    tab = tab || (isCo ? 'company' : 'franchise');
+    await p.click('#loginTabs [data-tab="' + tab + '"]');
+    if (tab === 'company') await p.selectOption('#loginBranchSel', branch);
+    else if (tab === 'franchise') await p.fill('#loginFreeInput', branch);
     await p.fill('#loginPinInput', pin || '');
+  }
+  async function login(branch, pin, tab) {
+    await fillForm(branch, pin, tab);
     await p.click('#loginBtn');
     await p.waitForFunction(() => document.getElementById('mainApp').style.display === 'block', null, { timeout: 8000 }).catch(() => { });
     await p.waitForTimeout(400);
@@ -135,8 +142,94 @@ function stub(route) {
   ok('B10 cloud read sends the branch token (readTokenFor) to the routed Sheet', read9.length >= 1 && read9[0].t === 'TOK-FR' && read9[0].which === 'franchise', JSON.stringify(read9[0] || {}));
   await p.evaluate(() => doLogout());
   await login('ZZ-99', '1111');
-  const r11 = await p.evaluate(() => ({ info: getBranchInfo('ZZ-99'), hdr: document.getElementById('hdrBranch').textContent }));
-  ok('B11 answer without type (v8 server) stores nothing; header falls back to the code', r11.info === null && r11.hdr.indexOf('ZZ-99') === 0, JSON.stringify(r11));
+  const r11 = await p.evaluate(() => ({ info: getBranchInfo('ZZ-99'), hdr: document.getElementById('hdrBranch').textContent, url: routeURL('ZZ-99') === FRANCHISE_URL }));
+  ok('B11 answer without type (v8 server): the TAB is stored as the type (b2); header falls back to the code',
+    r11.info && r11.info.type === 'franchise' && r11.info.label === 'ZZ-99' && r11.url && r11.hdr.indexOf('ZZ-99') === 0, JSON.stringify(r11));
+  await p.evaluate(() => doLogout());
+
+  // ─── b2: login tabs ───
+  const tabsOf = () => p.evaluate(() => ({
+    active: [].map.call(document.querySelectorAll('#loginTabs .lt-tab.active'), b => b.getAttribute('data-tab')).join(','),
+    aria: [].map.call(document.querySelectorAll('#loginTabs .lt-tab'), b => b.getAttribute('aria-selected')).join(','),
+    panes: [].map.call(document.querySelectorAll('.lt-pane'), x => x.getAttribute('data-ltpane') + ':' + (getComputedStyle(x).display !== 'none')).join(','),
+    saved: localStorage.getItem('puff10_loginTab'), btn: document.getElementById('loginBtn').disabled, branch: _loginBranch
+  }));
+  await p.fill('#loginName', 'Test Tester'); await p.fill('#loginNick', 'T'); await p.fill('#loginPhone', '0800000000');
+  await p.click('#loginTabs [data-tab="franchise"]');
+  const t14a = await tabsOf();
+  await p.click('#loginTabs [data-tab="event"]');
+  const t14b = await tabsOf();
+  ok('B14 tab bar: tap switches the pane + aria + remembered tab; Event tab = placeholder, start button disabled',
+    t14a.active === 'franchise' && t14a.aria === 'false,true,false' && t14a.panes === 'company:false,franchise:true,event:false' && t14a.saved === 'franchise' &&
+    t14b.active === 'event' && t14b.btn === true && t14b.branch === '', JSON.stringify([t14a, t14b]));
+
+  authAnswer = (body) => ({ ok: true, role: 'staff', token: 'TOK-' + body.branch, type: body.kind, label: body.kind === 'company' ? 'สระบุรี (สาขาหลัก)' : 'ร้านทดสอบ' });
+  calls.length = 0;
+  await login('SBR-01', '4417');
+  const c15 = calls.filter(c => c.type === 'branch_auth')[0] || {};
+  ok('B15 company tab → branch_auth to the Owner script with kind=company', c15.which === 'owner' && c15.kind === 'company' && c15.branch === 'SBR-01', JSON.stringify(c15));
+  await p.evaluate(() => doLogout());
+
+  await p.click('#loginTabs [data-tab="franchise"]');
+  await p.fill('#loginFreeInput', 'CM-PTT01');
+  const bad16 = await p.evaluate(() => ({ b: _loginBranch, note: document.getElementById('loginFreeNote').classList.contains('show'), btn: document.getElementById('loginBtn').disabled }));
+  await p.fill('#loginFreeInput', ' bk-f01 ');
+  const good16 = await p.evaluate(() => ({ b: _loginBranch, note: document.getElementById('loginFreeNote').classList.contains('show'), btn: document.getElementById('loginBtn').disabled,
+    upper: getComputedStyle(document.getElementById('loginFreeInput')).textTransform }));
+  calls.length = 0;
+  await login('bk-f01', '2580', 'franchise');
+  const c16 = calls.filter(c => c.type === 'branch_auth')[0] || {};
+  ok('B16 franchise code: wrong format → hint + button off; " bk-f01 " → BK-F01, upper-case shown, button on',
+    bad16.b === '' && bad16.note && bad16.btn && good16.b === 'BK-F01' && !good16.note && !good16.btn && good16.upper === 'uppercase', JSON.stringify([bad16, good16]));
+  ok('B17 franchise tab → branch_auth to the Franchise script, kind=franchise, code normalised; current branch = BK-F01',
+    c16.which === 'franchise' && c16.kind === 'franchise' && c16.branch === 'BK-F01' && await p.evaluate(() => currentBranch === 'BK-F01'), JSON.stringify(c16));
+
+  // B18 restore after logout + after reload
+  await p.evaluate(() => doLogout());
+  const r18a = await p.evaluate(() => ({ tab: _loginTab, v: document.getElementById('loginFreeInput').value, b: _loginBranch, btn: !document.getElementById('loginBtn').disabled }));
+  await p.reload(); await p.waitForTimeout(600);
+  const r18b = await p.evaluate(() => ({ tab: _loginTab, v: document.getElementById('loginFreeInput').value, b: _loginBranch }));
+  await login('SBR-01', '');
+  await p.evaluate(() => doLogout());
+  const r18c = await p.evaluate(() => ({ tab: _loginTab, v: document.getElementById('loginBranchSel').value, b: _loginBranch, btn: !document.getElementById('loginBtn').disabled }));
+  ok('B18 last tab + branch come back after logout and after reload (franchise BK-F01 · company SBR-01) — start button ready, no typing',
+    r18a.tab === 'franchise' && r18a.b === 'BK-F01' && r18a.btn && r18c.btn && r18b.tab === 'franchise' && r18b.b === 'BK-F01' && r18c.tab === 'company' && r18c.v === 'SBR-01' && r18c.b === 'SBR-01',
+    JSON.stringify([r18a, r18b, r18c]));
+
+  // B19 recent chips: franchise codes only, old pre-0018 codes hidden
+  await p.evaluate(() => { localStorage.setItem('puff10_recentBranches', JSON.stringify(['BK-F01', 'CM-PTT01', 'SBR-01x'])); });
+  await p.click('#loginTabs [data-tab="franchise"]');
+  const chips = await p.evaluate(() => [].map.call(document.querySelectorAll('#loginRecentChips .lf-chip span'), s => s.textContent).join(','));
+  await p.click('#loginRecentChips .lf-chip');
+  const chipFill = await p.evaluate(() => _loginBranch);
+  ok('B19 recent chips show valid franchise codes only; tap fills the code', chips === 'BK-F01' && chipFill === 'BK-F01', chips + ' / ' + chipFill);
+
+  // B20 server error codes → one Thai text map; stays on the login screen
+  const errs20 = {};
+  for (const code of ['not_found', 'pending', 'bad_pin', 'locked_out', 'ended', '']) {
+    authAnswer = () => (code ? { ok: false, error: code } : { ok: false });
+    await p.evaluate(() => { localStorage.removeItem('puff10_branchAuth'); document.getElementById('toast').textContent = ''; });
+    await fillForm('MVK-03', code === '' ? '' : '9999');
+    await p.click('#loginBtn'); await p.waitForTimeout(500);
+    errs20[code || 'none'] = await p.evaluate(() => document.getElementById('toast').textContent + (document.getElementById('mainApp').style.display === 'block' ? ' [ENTERED]' : ''));
+  }
+  ok('B20 error codes → Thai text (not_found / pending / bad_pin / locked_out / ended / no code without PIN), never enters the app',
+    errs20.not_found.indexOf('ไม่พบสาขานี้') === 0 && errs20.pending.indexOf('ยังไม่เปิดใช้งาน') > 0 && errs20.bad_pin === 'รหัสไม่ถูกต้อง' &&
+    errs20.locked_out.indexOf('รอ 10 นาที') > 0 && errs20.ended.indexOf('งานนี้ปิดแล้ว') === 0 && errs20.none === 'สาขานี้ต้องใส่รหัส', JSON.stringify(errs20));
+
+  // B21 client code rule = server rule (gs/Access.gs in the repo) · B22 KYI-07 in the company list
+  let srvRe = null;
+  try { srvRe = (/var BRANCH_CODE_RE = (\/[^\n]+\/);/.exec(fs.readFileSync(path.resolve('gs', 'Access.gs'), 'utf8')) || [])[1]; } catch (e) { srvRe = null; }
+  const cliRe = await p.evaluate(() => String(BRANCH_CODE_RE));
+  ok('B21 client BRANCH_CODE_RE == server BRANCH_CODE_RE (gs/Access.gs)', srvRe && srvRe === cliRe, cliRe + ' vs ' + srvRe);
+  const kyi = await p.evaluate(() => [].map.call(document.querySelectorAll('#loginBranchSel option'), o => o.value + '|' + o.textContent).filter(s => s.indexOf('KYI-07') === 0).join(''));
+  ok('B22 company list has KYI-07 เขาใหญ่ (หน้าร้าน Le Charm)', kyi === 'KYI-07|KYI-07 · เขาใหญ่ (หน้าร้าน Le Charm)', kyi);
+
+  // B23 new device / no remembered branch: the last tapped tab still comes back after reload
+  await p.evaluate(() => { localStorage.removeItem('puff8_lastBranch'); localStorage.setItem('puff10_loginTab', 'franchise'); });
+  await p.reload(); await p.waitForTimeout(600);
+  const r23 = await p.evaluate(() => ({ tab: _loginTab, b: _loginBranch, v: document.getElementById('loginFreeInput').value }));
+  ok('B23 no remembered branch → saved tab (franchise) is shown, nothing pre-filled', r23.tab === 'franchise' && r23.b === '' && r23.v === '', JSON.stringify(r23));
 
   // ─── B12 static rules on the lines this build added ───
   let added = '';

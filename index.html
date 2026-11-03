@@ -286,6 +286,14 @@
             display: block
         }
 
+        /* 0018-b2: login tabs — company / franchise / event */
+        .lt-bar { display: flex; gap: 6px; background: var(--card-soft); border-radius: 14px; padding: 4px; margin-bottom: 12px }
+        .lt-tab { flex: 1; border: none; background: transparent; border-radius: 10px; padding: 9px 4px; font-family: var(--ft); font-size: 13px; font-weight: 700; color: var(--muted); cursor: pointer }
+        .lt-tab.active { background: var(--card); color: var(--ink); box-shadow: 0 1px 4px rgba(0, 0, 0, .08) }
+        .lt-pane { display: none }
+        .lt-pane.active { display: block }
+        #loginFreeInput { text-transform: uppercase }
+
         .lf-chips {
             display: flex;
             flex-wrap: wrap;
@@ -4016,23 +4024,30 @@
                 <span class="lf-sep-txt">สาขา</span>
                 <div class="lf-sep-line"></div>
             </div>
-            <div class="lf-group">
-                <label class="lf-label" for="loginBranchSel">สาขา *</label>
+            <div class="lt-bar" id="loginTabs" role="tablist" aria-label="ประเภทสาขา">
+                <button type="button" class="lt-tab active" role="tab" aria-selected="true" data-tab="company">สาขาบริษัท</button>
+                <button type="button" class="lt-tab" role="tab" aria-selected="false" data-tab="franchise">แฟรนไชส์</button>
+                <button type="button" class="lt-tab" role="tab" aria-selected="false" data-tab="event">Event</button>
+            </div>
+            <div class="lf-group lt-pane active" data-ltpane="company">
+                <label class="lf-label" for="loginBranchSel">สาขาบริษัท *</label>
                 <select class="lf-input" id="loginBranchSel" onchange="onLoginSelectChange()" required>
                     <option value="">— เลือกสาขา —</option>
                 </select>
             </div>
-            <div class="lf-group">
-                <label class="lf-label" for="loginFreeInput">สาขาแฟรนไชส์ / Event <span
-                        style="opacity:.5">(ถ้ามี)</span></label>
-                <input class="lf-input" id="loginFreeInput" type="text" placeholder="เช่น CM-PTT01"
-                    oninput="onLoginFreeInput()" autocomplete="off">
-                <div class="lf-note" id="loginFreeNote">⚠️ รหัสนี้คือกุญแจเก็บข้อมูล —
-                    พิมพ์ผิดแม้ตัวเดียวข้อมูลย้อนหลังหาย</div>
+            <div class="lf-group lt-pane" data-ltpane="franchise">
+                <label class="lf-label" for="loginFreeInput">รหัสสาขาแฟรนไชส์ *</label>
+                <input class="lf-input" id="loginFreeInput" type="text" placeholder="เช่น BK-F01"
+                    oninput="onLoginFreeInput()" autocomplete="off" autocapitalize="characters" spellcheck="false">
+                <div class="lf-note" id="loginFreeNote">รูปแบบรหัส: ตัวอักษร 2–3 ตัว ขีด ตัวอักษร/ตัวเลข 2–3 ตัว
+                    เช่น BK-F01 — ไม่ทราบรหัส ถามเจ้าของร้าน</div>
                 <div class="lf-chips" id="loginRecentChips"></div>
             </div>
+            <div class="lf-group lt-pane" data-ltpane="event">
+                <div class="lf-note show">หน้าเลือกงาน Event เปิดใช้ในเวอร์ชันถัดไป</div>
+            </div>
             <div class="lf-group">
-                <label class="lf-label" for="loginPinInput">รหัสผ่านสาขา <span style="opacity:.5">(เฉพาะสาขาที่ตั้งรหัส)</span></label>
+                <label class="lf-label" for="loginPinInput">รหัสสาขา <span style="opacity:.5">(รหัสเจ้าของ หรือ รหัสพนักงาน)</span></label>
                 <input class="lf-input" id="loginPinInput" type="password" inputmode="numeric" placeholder="••••" autocomplete="off">
             </div>
             <button class="login-btn" id="loginBtn" onclick="doLogin()" disabled>เริ่มใช้งาน</button>
@@ -4467,6 +4482,7 @@
             { code: "WNY-04", label: "ปตท.บ้านใหญ่วังน้อย" },
             { code: "BPI-05", label: "ปตท.บางปะอิน" },
             { code: "PS-MU2", label: "Puff Stick มวกเหล็ก2" },
+            { code: "KYI-07", label: "เขาใหญ่ (หน้าร้าน Le Charm)" },
         ];
 
         var F = [
@@ -4506,9 +4522,10 @@
             m[b] = { type: String(type), label: String(label || b) };
             try { localStorage.setItem("puff10_branchInfo", JSON.stringify(m)); } catch (e) { showToast("⚠️ พื้นที่เครื่องเต็ม — บันทึกข้อมูลสาขาไม่ได้", true); }
         }
+        function urlForType(type) { return type === "franchise" ? FRANCHISE_URL : OWNER_URL; }   // company + event → Owner
         function routeURL(b) {
             var info = getBranchInfo(b);
-            if (info && info.type) return info.type === "franchise" ? FRANCHISE_URL : OWNER_URL;
+            if (info && info.type) return urlForType(info.type);
             // No server type on this device yet (e.g. queued items of a branch not logged in since 0018): v9 name rule. Remove in 0019.
             var isPreset = BRANCH_CODES.some(function (x) { return x.code === b; });
             var isEvent = !!b && b.charAt(0) === "E";
@@ -5033,31 +5050,61 @@
             });
         }
 
-        // ── LOGIN ──
+        // ── LOGIN (0018-b2): tabs company / franchise / event — the tab is the branch type sent to the server (kind) ──
+        var LOGIN_TABS = ["company", "franchise", "event"];
+        var _loginTab = "company";
+        var BRANCH_CODE_RE = /^[A-Z]{2,3}-[A-Z0-9]{2,3}$/;   // same rule as the server (Access.gs BRANCH_CODE_RE — test B21)
+        function normBranchCode(v) { return String(v || "").replace(/\s+/g, "").toUpperCase(); }
+        function setLoginTab(tab) {
+            if (LOGIN_TABS.indexOf(tab) < 0) tab = "company";
+            _loginTab = tab;
+            var bar = $("loginTabs");
+            if (bar) [].forEach.call(bar.querySelectorAll(".lt-tab"), function (b) {
+                var on = b.getAttribute("data-tab") === tab;
+                b.classList.toggle("active", on); b.setAttribute("aria-selected", on ? "true" : "false");
+            });
+            [].forEach.call(document.querySelectorAll(".lt-pane"), function (p) { p.classList.toggle("active", p.getAttribute("data-ltpane") === tab); });
+            try { localStorage.setItem("puff10_loginTab", tab); } catch (e) { }
+            if (tab === "company") onLoginSelectChange();
+            else if (tab === "franchise") onLoginFreeInput();
+            else { _loginBranch = ""; updLoginBtn(); }   // event tab: 0018-d
+        }
+        function onLoginTabClick(ev) {
+            var b = ev.target && ev.target.closest ? ev.target.closest(".lt-tab") : null;
+            if (b) setLoginTab(b.getAttribute("data-tab"));
+        }
         function onLoginSelectChange() {
-            var v = ($("loginBranchSel") || { value: "" }).value;
-            if (v) {
-                _loginBranch = v;
-                var fi = $("loginFreeInput"); if (fi) fi.value = "";
-                var fn2 = $("loginFreeNote"); if (fn2) fn2.classList.remove("show");
-            } else {
-                _loginBranch = "";
-            }
+            _loginBranch = ($("loginBranchSel") || { value: "" }).value || "";
             updLoginBtn();
         }
         function onLoginFreeInput() {
-            var v = ($("loginFreeInput") || { value: "" }).value.trim();
-            var fn2 = $("loginFreeNote");
-            if (v) {
-                _loginBranch = v;
-                var sel = $("loginBranchSel"); if (sel) sel.value = "";
-                if (fn2) fn2.classList.add("show");
-            } else {
-                _loginBranch = "";
-                if (fn2) fn2.classList.remove("show");
-            }
+            var v = normBranchCode(($("loginFreeInput") || { value: "" }).value);
+            var valid = BRANCH_CODE_RE.test(v);
+            _loginBranch = valid ? v : "";
+            var fn2 = $("loginFreeNote"); if (fn2) fn2.classList.toggle("show", !!v && !valid);
             renderRecentChips();
             updLoginBtn();
+        }
+        // Pre-fill tab + branch after logout and at boot — one rule for both.
+        function restoreLoginForm(branch) {
+            var info = branch ? getBranchInfo(branch) : null;
+            var isCo = BRANCH_CODES.some(function (b) { return b.code === branch; });
+            var tab = (info && info.type) || (isCo ? "company" : (branch ? "franchise" : "")) || localStorage.getItem("puff10_loginTab") || "company";
+            var sel = $("loginBranchSel"); if (sel && isCo) sel.value = branch;
+            var fi = $("loginFreeInput"); if (fi && tab === "franchise" && branch) fi.value = branch;
+            setLoginTab(tab);
+        }
+        // Server error code → Thai text (SPEC §4.7) — one map for every auth screen.
+        function authErrorText(code, hadPin) {
+            var m = {
+                not_found: "ไม่พบสาขานี้ — ตรวจรหัสสาขา หรือติดต่อ HQ",
+                pending: "สาขานี้ยังไม่เปิดใช้งาน — ใช้ “เปิดใช้งานสาขาครั้งแรก” กับรหัส 8 หลักจาก HQ",
+                bad_pin: "รหัสไม่ถูกต้อง",
+                need_pin: "สาขานี้ต้องใส่รหัส",
+                locked_out: "ใส่รหัสผิดหลายครั้ง — รอ 10 นาที",
+                ended: "งานนี้ปิดแล้ว บันทึกเพิ่มไม่ได้"
+            };
+            return m[code] || (hadPin ? "รหัสไม่ถูกต้อง" : "สาขานี้ต้องใส่รหัส");
         }
         function updLoginBtn() {
             var name = ($("loginName") || { value: "" }).value.trim();
@@ -5200,7 +5247,7 @@
             try { return JSON.parse(localStorage.getItem("puff10_recentBranches") || "[]"); } catch (e) { return []; }
         }
         function pushRecentBranch(b) {
-            if (!b) return;
+            if (!b || !BRANCH_CODE_RE.test(b)) return;
             var isOwner = BRANCH_CODES.some(function (x) { return x.code === b; });
             if (isOwner) return;
             var list = getRecentBranches().filter(function (x) { return x !== b; });
@@ -5218,7 +5265,7 @@
             var box = $("loginRecentChips");
             if (!box) return;
             while (box.firstChild) box.removeChild(box.firstChild);
-            var list = getRecentBranches();
+            var list = getRecentBranches().filter(function (c) { return BRANCH_CODE_RE.test(c); });   // old pre-0018 codes are dead
             if (!list || !list.length) { box.style.display = "none"; return; }
             box.style.display = "flex";
             list.forEach(function (code) {
@@ -5309,18 +5356,24 @@
             var pin = ($("loginPinInput") || { value: "" }).value.trim();
             if (btn) btn.textContent = "กำลังตรวจสอบรหัส...";
             function onAuthOk(d) {
-                if (d && d.ok) { if (d.token) setToken(_loginBranch, d.token, d.role); setBranchInfo(_loginBranch, d.type, d.label); setBranchAuth(_loginBranch); pushRecentBranch(_loginBranch); finishLogin(); }
+                if (d && d.ok) {
+                    if (d.token) setToken(_loginBranch, d.token, d.role);
+                    setBranchInfo(_loginBranch, d.type || _loginTab, d.label);   // v8 server sends no type → the tab is the type
+                    setBranchAuth(_loginBranch);
+                    if (_loginTab === "franchise") pushRecentBranch(_loginBranch);
+                    finishLogin();
+                }
                 else {
-                    showToast((d && d.error === "locked_out") ? "ใส่รหัสผิดหลายครั้ง — รอ 10 นาที" : (pin ? "รหัสผ่านสาขาไม่ถูกต้อง" : "สาขานี้ต้องใส่รหัสผ่าน"), true);
+                    showToast(authErrorText(d && d.error, !!pin), true);
                     var pI = $("loginPinInput"); if (pI) pI.value = "";
                     if (btn) { btn.disabled = false; btn.textContent = "เริ่มใช้งาน"; }
                 }
             }
             function authAttempt(isRetry) {
-                fetchJSON(getSyncURL(_loginBranch), {
+                fetchJSON(urlForType(_loginTab), {
                     method: "POST", mode: "cors",
                     headers: { "Content-Type": "text/plain;charset=utf-8" },
-                    body: JSON.stringify({ type: "branch_auth", branch: _loginBranch, pin: pin })
+                    body: JSON.stringify({ type: "branch_auth", branch: _loginBranch, pin: pin, kind: _loginTab })
                 }, 12000)
                     .then(onAuthOk)
                     .catch(function () {
@@ -5340,15 +5393,7 @@
             $("mainApp").style.display = "none";
             $("loginScreen").style.display = "flex";
             var lastStaff = getStaff();
-            var sel = $("loginBranchSel");
-            var found = BRANCH_CODES.find(function (b) { return b.code === currentBranch; });
-            if (found && sel) {
-                sel.value = currentBranch;
-                _loginBranch = currentBranch;
-            } else if (currentBranch) {
-                var fi = $("loginFreeInput"); if (fi) fi.value = currentBranch;
-                _loginBranch = currentBranch;
-            }
+            restoreLoginForm(currentBranch);
             if (lastStaff.name) {
                 var ln = $("loginName"); if (ln) ln.value = lastStaff.name;
                 var lk = $("loginNick"); if (lk) lk.value = lastStaff.nick;
@@ -7303,13 +7348,8 @@
                 var lk = $("loginNick"); if (lk) lk.value = lastStaff.nick;
                 var lp = $("loginPhone"); if (lp) lp.value = lastStaff.phone;
             }
-            if (lastBranch) {
-                var found = BRANCH_CODES.find(function (b) { return b.code === lastBranch; });
-                var sel = $("loginBranchSel");
-                if (found && sel) { sel.value = lastBranch; _loginBranch = lastBranch; }
-                else { var fi = $("loginFreeInput"); if (fi) fi.value = lastBranch; _loginBranch = lastBranch; }
-            }
-            updLoginBtn();
+            restoreLoginForm(lastBranch);
+            var ltb = $("loginTabs"); if (ltb) ltb.addEventListener("click", onLoginTabClick);
             renderRecentChips();
             renderDeviceModeToggle();  // Task 1: show mode toggle on login screen
             applyHQTabVisibility();    // hide HQ tab for writer devices
