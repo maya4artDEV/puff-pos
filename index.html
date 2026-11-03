@@ -297,6 +297,14 @@
         .login-hq { display: block; margin: 14px auto 0; border: none; background: transparent; font-family: var(--f); font-size: 12px; color: var(--muted); text-decoration: underline; cursor: pointer; padding: 8px 12px }
         .hq-card { cursor: pointer }
         .hq-card:active { transform: scale(.99) }
+        /* 0018-b4: HQ viewing a branch — ขาย / ทอด dimmed, not tappable · fry row on the HQ card */
+        .tab-btn.hq-dim { opacity: .4 }
+        .page.hq-dim { opacity: .45 }
+        .page.hq-dim > * { pointer-events: none }
+        .hq-fry { display: flex; gap: 6px; margin-bottom: 6px }
+        .hq-fry > div { flex: 1; background: #FFF4D6; border-radius: 10px; padding: 8px 6px; text-align: center }
+        .hq-fry-n { font-family: var(--fn); font-size: 22px; font-weight: 800 }
+        .hq-fry-l { font-size: 10px; color: var(--muted); margin-top: 1px }
 
         .lf-chips {
             display: flex;
@@ -5140,12 +5148,15 @@
             showToast(HQ_RO_TEXT, true);
             return true;
         }
-        // HQ tab only in HQ mode; branch tabs hidden while HQ has no branch open (dashboard).
+        // HQ tab only in HQ mode; branch tabs hidden while HQ has no branch open (dashboard);
+        // while HQ views a branch the entry pages (ขาย / ทอด) are dimmed + not tappable (D-b3-2).
+        var HQ_DIM = { sell: 1, fry: 1 };
         function applyHQTabVisibility() {
             var hq = isHQMode();
             TABS.forEach(function (t) {
-                var b = $("tab-" + t); if (!b) return;
-                b.style.display = (t === "hq") ? (hq ? "" : "none") : ((hq && !currentBranch) ? "none" : "");
+                var b = $("tab-" + t), pg = $("page-" + t), dim = hq && !!currentBranch && !!HQ_DIM[t];
+                if (b) { b.style.display = (t === "hq") ? (hq ? "" : "none") : ((hq && !currentBranch) ? "none" : ""); b.classList.toggle("hq-dim", dim); }
+                if (pg) pg.classList.toggle("hq-dim", dim);
             });
         }
         function renderDeviceModeBadge() {
@@ -5509,7 +5520,7 @@
         }
         // Bottom bars belong to the puff pane only (gift / delivery / history have their own buttons)
         function syncActionBars() {
-            var sb = $("sellBar"); if (sb) sb.style.display = (currentTab === "sell" && _subTab.sell === "puff") ? "block" : "none";
+            var sb = $("sellBar"); if (sb) sb.style.display = (currentTab === "sell" && _subTab.sell === "puff" && !isHQMode()) ? "block" : "none";   // b4: no sell bar in HQ
             var kb = $("stockBar"); if (kb) kb.style.display = (currentTab === "stock" && _subTab.stock === "puff") ? "block" : "none";
         }
         function onSubTabClick(ev) {
@@ -7784,7 +7795,13 @@
                         if (s.lastStaff && s.lastStaff.nick) {
                             card.appendChild(el("div", { txt: "พนักงาน: " + s.lastStaff.nick + " (" + s.lastStaff.name + ")", css: "font-size:11px;color:var(--muted);margin-bottom:8px" }));
                         }
-                        var nums = el("div", { css: "display:grid;grid-template-columns:1fr 1fr;gap:6px" });
+                        // b4: fry first, big — fried that day + still at the counter (fried − sold)
+                        var fry = s.fryPieces || 0, left = Math.max(0, fry - (s.soldPieces || 0));
+                        card.appendChild(el("div", { cls: "hq-fry" }, [
+                            el("div", {}, [el("div", { cls: "hq-fry-n", txt: fry + " ชิ้น", css: "color:var(--mustard-deep)" }), el("div", { cls: "hq-fry-l", txt: "🔥 ทอด" })]),
+                            el("div", {}, [el("div", { cls: "hq-fry-n", txt: left + " ชิ้น", css: "color:var(--cocoa)" }), el("div", { cls: "hq-fry-l", txt: "เหลือหน้าร้าน (ทอดแล้วยังไม่ขาย)" })])
+                        ]));
+                        var nums = el("div", { css: "display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px" });
                         function numBox(label, val, color) {
                             return el("div", { css: "background:var(--bg);border-radius:8px;padding:6px;text-align:center" }, [
                                 el("div", { txt: val, css: "font-family:var(--fn);font-size:16px;font-weight:700;color:" + color }),
@@ -7794,7 +7811,6 @@
                         nums.appendChild(numBox("ยอด ฿", Number(s.totalAmount || 0).toLocaleString(), "var(--cocoa)"));
                         nums.appendChild(numBox("ขายแล้ว", (s.soldPieces || 0) + " ชิ้น", "var(--mustard-deep)"));
                         nums.appendChild(numBox("แช่แข็ง", (s.frozenPieces || 0) + " ชิ้น", "var(--cocoa)"));
-                        nums.appendChild(numBox("ทอดวันนี้", (s.fryPieces || 0) + " ชิ้น", "var(--cocoa)"));
                         card.appendChild(nums);
                         if (s.updated_at) {
                             card.appendChild(el("div", { txt: "อัปเดต: " + s.updated_at, css: "font-size:9px;color:var(--muted);margin-top:8px;text-align:right" }));

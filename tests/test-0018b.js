@@ -290,6 +290,14 @@ function stub(route) {
     !bad26.s && bad26.t === 'PIN ไม่ถูกต้อง' && calls.filter(c => c.type === 'hq_auth' && c.which === 'owner').length === 2 && list26.which === 'owner' && list26.t === 'HQ-TOK' &&
     r26.cards === 'E-691102-K7Q,SBR-01,ZZ-01' && lbl26.indexOf('สระบุรี (สาขาหลัก) · SBR-01') >= 0 && lbl26.indexOf('งานวัดพระพุทธบาท · E-691102-K7Q') >= 0, JSON.stringify([bad26, r26.cards, lbl26.slice(0, 120)]));
 
+  // B41 fry row on the card: fried + still at the counter (fried − sold), shown first
+  const r41 = await p.evaluate(() => {
+    var c = document.querySelector('#page-hq [data-hqbranch="SBR-01"]'), f = c ? c.querySelector('.hq-fry') : null;
+    return { fry: f ? f.textContent : '', first: !!(f && c.textContent.indexOf(f.textContent) < c.textContent.indexOf('ยอด ฿')) };
+  });
+  ok('B41 HQ card: big fry row "8 ชิ้น 🔥 ทอด" + "3 ชิ้น เหลือหน้าร้าน" (8 − 5) before the money boxes',
+    r41.fry.indexOf('8 ชิ้น🔥 ทอด') === 0 && r41.fry.indexOf('3 ชิ้นเหลือหน้าร้าน') > 0 && r41.first, JSON.stringify(r41));
+
   // B27 tap a card → that branch read-only: cloud copy shown, read = Owner + HQ token, tabs + back button
   await p.evaluate(() => { var t = getTokens(); t['SBR-01'] = { token: 'BR-OWNER', role: 'owner', ts: 1 }; saveTokens(t); });   // this device also holds an OWNER token of SBR-01
   calls.length = 0;
@@ -301,6 +309,20 @@ function stub(route) {
     r27.br === 'SBR-01' && r27.mode === 'viewer' && r27.tab === 'home' && r27.tabs === 'home,sell,fry,stock,close,hist,hq' && r27.back &&
     r27.hdr.indexOf('สระบุรี (สาขาหลัก)') > 0 && rd27.which === 'owner' && rd27.t === 'HQ-TOK' && st27.sales === 1 && st27.hero, JSON.stringify([r27, rd27, st27]));
   ok('B28 HQ never takes the branch token role (device holds an OWNER token of SBR-01 → role staff in HQ)', st27.role === 'staff', st27.role);
+
+  // B40 D-b3-2: ขาย / ทอด dimmed + not tappable while HQ views a branch; other tabs normal; no sell bar
+  const r40 = await p.evaluate(() => {
+    var dimTabs = TABS.filter(function (t) { return document.getElementById('tab-' + t).classList.contains('hq-dim'); }).join(',');
+    var dimPages = [].map.call(document.querySelectorAll('.page.hq-dim'), function (x) { return x.id; }).join(',');
+    go('sell');
+    var pg = document.getElementById('page-sell'), kid = pg.firstElementChild;
+    var o = { dimTabs: dimTabs, dimPages: dimPages, tab: currentTab, op: getComputedStyle(pg).opacity, pe: kid ? getComputedStyle(kid).pointerEvents : '',
+      bar: getComputedStyle(document.getElementById('sellBar')).display, tabOp: getComputedStyle(document.getElementById('tab-fry')).opacity };
+    go('home');
+    return o;
+  });
+  ok('B40 HQ branch view: tabs + pages ขาย / ทอด dimmed (opacity < 1), page content not tappable, still openable, no sell bar; other tabs normal',
+    r40.dimTabs === 'sell,fry' && r40.dimPages === 'page-sell,page-fry' && r40.tab === 'sell' && Number(r40.op) < 1 && Number(r40.tabOp) < 1 && r40.pe === 'none' && r40.bar === 'none', JSON.stringify(r40));
 
   // B29 nothing leaves the device and nothing is saved: every write path refused
   calls.length = 0;
@@ -393,6 +415,10 @@ function stub(route) {
   ok('B35 HQ logout: HQ mode + session cleared, branch session kept, form on SBR-01 → branch login is a writer again (HQ tab hidden, queued item sent)',
     !r35.hq && !r35.s && !r35.t && r35.ba && r35.login === 'flex' && r35.sel === 'SBR-01' && r35.br === 'SBR-01' && r35.badge === 'none' &&
     r35b.mode === 'writer' && r35b.tabs === 'home,sell,fry,stock,close,hist' && writes().indexOf('state_save') >= 0, JSON.stringify([r35, r35b.tabs, writes()]));
+  // contract: outside HQ the tab function never dims (called directly — today nothing else calls it while a branch is open)
+  const r42 = await p.evaluate(() => { applyHQTabVisibility(); go('sell'); return { dim: document.querySelectorAll('.hq-dim').length, bar: getComputedStyle(document.getElementById('sellBar')).display }; });
+  ok('B42 normal branch login after HQ: nothing dimmed, sell bar back', r42.dim === 0 && r42.bar !== 'none', JSON.stringify(r42));
+  await p.evaluate(() => go('home'));
   const g35 = await p.evaluate(() => { go('hq'); return currentTab + ' | ' + document.getElementById('toast').textContent; });
   ok('B36 outside HQ mode the HQ tab is unreachable', g35.indexOf('hq') !== 0 && g35.indexOf('สำหรับ HQ') > 0, g35);
 
