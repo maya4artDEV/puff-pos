@@ -4495,12 +4495,26 @@
         var _selectedDateOffset = 0;
         var _backDate = null;   // L2: {date, reason, scope:"close"|"full"} while a past business day is open for writing (replaces Issue3 _closingPastDay)
 
-        // ── Backend Routing (identical to v9) ──
-        function getSheetURL() {
-            var isPreset = BRANCH_CODES.some(function (b) { return b.code === currentBranch; });
-            var isEvent = currentBranch.charAt(0) === "E";
+        // ── Backend routing (0018) — ONE rule: the branch type the server returned at login (puff10_branchInfo) ──
+        function getBranchInfoMap() {
+            try { return JSON.parse(localStorage.getItem("puff10_branchInfo") || "{}") || {}; } catch (e) { return {}; }
+        }
+        function getBranchInfo(b) { var m = getBranchInfoMap(); return Object.prototype.hasOwnProperty.call(m, b) ? m[b] : null; }
+        function setBranchInfo(b, type, label) {
+            if (!b || !type) return;
+            var m = getBranchInfoMap();
+            m[b] = { type: String(type), label: String(label || b) };
+            try { localStorage.setItem("puff10_branchInfo", JSON.stringify(m)); } catch (e) { showToast("⚠️ พื้นที่เครื่องเต็ม — บันทึกข้อมูลสาขาไม่ได้", true); }
+        }
+        function routeURL(b) {
+            var info = getBranchInfo(b);
+            if (info && info.type) return info.type === "franchise" ? FRANCHISE_URL : OWNER_URL;
+            // No server type on this device yet (e.g. queued items of a branch not logged in since 0018): v9 name rule. Remove in 0019.
+            var isPreset = BRANCH_CODES.some(function (x) { return x.code === b; });
+            var isEvent = !!b && b.charAt(0) === "E";
             return (isPreset || isEvent) ? OWNER_URL : FRANCHISE_URL;
         }
+        function getSheetURL() { return routeURL(currentBranch); }
 
         // ── State helpers (identical to v9) ──
         function safeBranch(b) {
@@ -5133,7 +5147,18 @@
         }
         function clearToken(b) { var t = getTokens(); delete t[b]; saveTokens(t); }
         function getTokenFor(b) { var t = getTokens()[b]; return (t && t.token) ? t.token : ""; }
-        function getRole() { var t = getTokens()[currentBranch]; return (t && t.role === "staff") ? "staff" : "owner"; }
+        // Fail-closed: no token entry for this branch = staff (0018, SPEC B9).
+        function getRole() { var t = getTokens()[currentBranch]; return (t && t.role === "owner") ? "owner" : "staff"; }
+        // Token for cloud READS of branch b. Single source — 0018-b3 returns the HQ token in HQ mode.
+        function readTokenFor(b) { return getTokenFor(b); }
+        // 0018: v8 tokens gave every company device role "owner" → drop them once; PIN asked once, sync queue kept.
+        var AUTH_VERSION = "2";
+        function migrateAuthVersion() {
+            if (localStorage.getItem("puff10_authv") === AUTH_VERSION) return;
+            localStorage.removeItem("puff10_tokens");
+            localStorage.removeItem("puff10_branchAuth");
+            try { localStorage.setItem("puff10_authv", AUTH_VERSION); } catch (e) { }
+        }
         // Staff = front-of-shop only. Everything that rewrites numbers, prices or history is owner-only.
         var STAFF_BLOCKED = { price: 1, stockCorrect: 1, giftCatalog: 1, hist: 1, export: 1 };
         function canDo(action) { return !(getRole() === "staff" && STAFF_BLOCKED[action]); }
@@ -5284,7 +5309,7 @@
             var pin = ($("loginPinInput") || { value: "" }).value.trim();
             if (btn) btn.textContent = "กำลังตรวจสอบรหัส...";
             function onAuthOk(d) {
-                if (d && d.ok) { if (d.token) setToken(_loginBranch, d.token, d.role); setBranchAuth(_loginBranch); pushRecentBranch(_loginBranch); finishLogin(); }
+                if (d && d.ok) { if (d.token) setToken(_loginBranch, d.token, d.role); setBranchInfo(_loginBranch, d.type, d.label); setBranchAuth(_loginBranch); pushRecentBranch(_loginBranch); finishLogin(); }
                 else {
                     showToast((d && d.error === "locked_out") ? "ใส่รหัสผิดหลายครั้ง — รอ 10 นาที" : (pin ? "รหัสผ่านสาขาไม่ถูกต้อง" : "สาขานี้ต้องใส่รหัสผ่าน"), true);
                     var pI = $("loginPinInput"); if (pI) pI.value = "";
@@ -5337,7 +5362,8 @@
             var initials = staff.nick ? staff.nick.charAt(0).toUpperCase() : "?";
             var av = $("hdrAvatar"); if (av) av.textContent = initials;
             var nm = $("hdrName"); if (nm) nm.textContent = (staff.nick || "—") + " · " + (staff.name || "—");
-            var br = $("hdrBranch"); if (br) br.textContent = (found ? found.label : currentBranch || "—") + " · " + (staff.phone || "—");
+            var info = getBranchInfo(currentBranch);   // 0018: server label (event names, franchise shop names) first
+            var br = $("hdrBranch"); if (br) br.textContent = ((info && info.label) || (found ? found.label : currentBranch) || "—") + " · " + (staff.phone || "—");
         }
 
         // ── BUBBLE NAV ──
@@ -7266,6 +7292,7 @@
         }
 
         window.addEventListener("DOMContentLoaded", function () {
+            migrateAuthVersion();    // 0018: before anything reads a token
             renderBranchOptions();   // must run before lastBranch pre-select below
             var lastBranch = localStorage.getItem("puff8_lastBranch");
             var lastStaff = null;
@@ -7344,11 +7371,7 @@
             return d.toLocaleDateString("th-TH", { timeZone: "Asia/Bangkok", year: "numeric", month: "2-digit", day: "2-digit" });
         }
 
-        function getSyncURL(branch) {
-            var isPreset = BRANCH_CODES.some(function (b) { return b.code === branch; });
-            var isEvent = branch && branch.charAt(0) === "E";
-            return (isPreset || isEvent) ? OWNER_URL : FRANCHISE_URL;
-        }
+        function getSyncURL(branch) { return routeURL(branch); }
 
         function queueCloudSync(branch, date, state) {
             if (getDeviceMode() === "viewer") return;  // Task 2: viewer never writes cloud state
@@ -7469,7 +7492,7 @@
             migrateBranchKeys(branch);
             // state_latest: returns the most recent state of this branch on cloud,
             // regardless of how many days ago it was saved (fixes multi-device gap bug)
-            fetch(baseUrl + "?type=state_latest&branch=" + encodeURIComponent(branch) + "&t=" + encodeURIComponent(getTokenFor(branch)))
+            fetch(baseUrl + "?type=state_latest&branch=" + encodeURIComponent(branch) + "&t=" + encodeURIComponent(readTokenFor(branch)))
                 .then(function (r) { return r.json(); })
                 .then(function (data) {
                     if (data.ok && data.state && data.date) {
