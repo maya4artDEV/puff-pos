@@ -4,6 +4,9 @@
 // b1: routing single source · branchInfo from the server · forced re-login once · getRole fail-closed · read token.
 // b2: login tabs company / franchise / event · kind sent · franchise code rule + upper-case · one error-text map ·
 //     tab + branch restored after logout / reload · recent chips · client code rule = server rule · KYI-07.
+// b3: HQ link → HQ mode (dashboard, no branch) · tap a card = branch read-only with the HQ token on the Owner script ·
+//     no write leaves the device (sale / fry / gift / delivery / close / email / state) · queue kept · back to HQ ·
+//     session expiry · HQ logout · device toggle gone.
 const path = require('path'), fs = require('fs'), http = require('http');
 const { chromium } = require('playwright');
 
@@ -19,6 +22,7 @@ const srv = http.createServer((req, res) => {
 
 // Stub server: answers per request type; `auth` can be overridden per test.
 const calls = [];
+let hqStates = [], latest = {};   // b3: Owner state_list rows + state_latest answers per branch
 let authAnswer = () => ({ ok: true, role: 'staff', token: 'TOK-STAFF', type: 'company', label: 'สระบุรี (สาขาหลัก)' });
 function stub(route) {
   const req = route.request(), url = req.url();
@@ -29,7 +33,9 @@ function stub(route) {
   calls.push({ which, method: req.method(), type: body.type || q.type, branch: body.branch || q.branch, kind: body.kind, t: q.t, token: body.token });
   let ans = { ok: true };
   if (body.type === 'branch_auth') ans = authAnswer(body, which);
-  else if (q.type === 'state_latest') ans = { ok: true, state: null };
+  else if (body.type === 'hq_auth') ans = body.pin === '8642' ? { ok: true, token: 'HQ-TOK' } : { ok: false, error: 'bad_pin' };
+  else if (q.type === 'state_list') ans = { ok: true, states: hqStates };
+  else if (q.type === 'state_latest') ans = { ok: true, state: latest[q.branch] || null, date: latest[q.branch] ? latest[q.branch].date : undefined };
   route.fulfill({ status: 200, contentType: 'application/json', headers: { 'Access-Control-Allow-Origin': '*' }, body: JSON.stringify(ans) });
 }
 
@@ -230,6 +236,189 @@ function stub(route) {
   await p.reload(); await p.waitForTimeout(600);
   const r23 = await p.evaluate(() => ({ tab: _loginTab, b: _loginBranch, v: document.getElementById('loginFreeInput').value }));
   ok('B23 no remembered branch → saved tab (franchise) is shown, nothing pre-filled', r23.tab === 'franchise' && r23.b === '' && r23.v === '', JSON.stringify(r23));
+
+  // ═══ b3: HQ mode ═══ (a crash inside is reported as one FAIL line, results so far are still printed)
+  try {
+  const WRITE_TYPES = ['sale', 'fry', 'gift_sale', 'delivery_sale', 'email_report', 'state_save'];
+  const writes = () => calls.filter(c => WRITE_TYPES.indexOf(c.type) >= 0).map(c => c.type);
+  const view = () => p.evaluate(() => ({
+    mode: getDeviceMode(), hq: isHQMode(), br: currentBranch, tab: currentTab, app: document.getElementById('mainApp').style.display,
+    tabs: TABS.filter(function (t) { var b = document.getElementById('tab-' + t); return b && b.style.display !== 'none'; }).join(','),
+    hdr: document.getElementById('hdrName').textContent + ' | ' + document.getElementById('hdrBranch').textContent,
+    back: document.getElementById('hqBackBtn').style.display !== 'none', badge: document.getElementById('deviceModeBadge').textContent,
+    pin: !!document.querySelector('#page-hq input'), cards: [].map.call(document.querySelectorAll('#page-hq [data-hqbranch]'), c => c.getAttribute('data-hqbranch')).join(',')
+  }));
+
+  // B24 toggle gone: no ✏/👁 row, the old key is ignored, HQ link present
+  await p.evaluate(() => { localStorage.clear(); localStorage.setItem('puff7_device_mode', 'viewer'); localStorage.setItem('puff8_lastBranch', 'SBR-01'); });
+  await p.reload(); await p.waitForTimeout(600);
+  const r24 = await p.evaluate(() => ({ row: !!document.getElementById('deviceModeRow'), tog: !!document.getElementById('deviceModeToggle'),
+    mode: getDeviceMode(), link: (document.getElementById('loginHQ') || {}).textContent || '',
+    fns: ['renderDeviceModeToggle', 'setDeviceMode', 'onDeviceModeToggleClick'].filter(function (f) { return typeof window[f] === 'function'; }).join(',') }));
+  const src24 = html.toString();
+  ok('B24 device toggle removed: no row / toggle / functions, old puff7_device_mode=viewer ignored (writer), HQ link on login',
+    !r24.row && !r24.tog && r24.mode === 'writer' && r24.fns === '' && r24.link.indexOf('HQ') === 0 && src24.indexOf('puff7_device_mode') < 0, JSON.stringify(r24));
+
+  // B25 HQ link → app shell in HQ mode: no branch, HQ tab only, PIN asked, viewer
+  hqStates = [
+    { branch: 'SBR-01', date: '', label: 'สระบุรี (สาขาหลัก)', totalAmount: 125, soldPieces: 5, frozenPieces: 10, fryPieces: 8, updated_at: 'x' },
+    { branch: 'E-691102-K7Q', date: '', label: 'งานวัดพระพุทธบาท', totalAmount: 50, updated_at: 'y' },
+    { branch: 'ZZ-01', date: '', label: '', totalAmount: 0, updated_at: 'z' }   // name rule → Franchise; HQ must still read it from Owner
+  ];
+  const T0 = await p.evaluate(() => todayISO());
+  hqStates.forEach(s => { s.date = T0; });
+  latest = await p.evaluate(() => {
+    var a = newState('SBR-01'); a.date = todayISO(); a.sales = [{ ts: 'x', totalAmount: 125, totalPieces: 5, items: [] }];
+    var z = newState('ZZ-01'); z.date = todayISO(); z.sales = [{ ts: 'x', totalAmount: 30, totalPieces: 1, items: [] }];
+    return { 'SBR-01': a, 'ZZ-01': z };
+  });
+  calls.length = 0;
+  await p.click('#loginHQ'); await p.waitForTimeout(500);
+  const r25 = await view();
+  ok('B25 HQ link → app in HQ mode: viewer, no branch, HQ tab only, PIN page, header "HQ … ภาพรวมทุกสาขา", badge, no back button',
+    r25.hq && r25.mode === 'viewer' && r25.br === '' && r25.tab === 'hq' && r25.app === 'block' && r25.tabs === 'hq' && r25.pin &&
+    r25.hdr.indexOf('HQ') === 0 && r25.hdr.indexOf('ภาพรวมทุกสาขา') > 0 && !r25.back && r25.badge.indexOf('HQ') > 0, JSON.stringify(r25));
+
+  // B26 HQ PIN → hq_auth on Owner → dashboard (state_list with the HQ token), one tappable card per branch with its label
+  await p.fill('#page-hq input', '1111'); await p.click('#page-hq button'); await p.waitForTimeout(400);
+  const bad26 = await p.evaluate(() => ({ s: localStorage.getItem('puff10_hqSession'), t: document.getElementById('toast').textContent }));
+  await p.fill('#page-hq input', '8642'); await p.click('#page-hq button'); await p.waitForTimeout(700);
+  const r26 = await view();
+  const list26 = calls.filter(c => c.type === 'state_list')[0] || {};
+  const lbl26 = await p.evaluate(() => [].map.call(document.querySelectorAll('#page-hq [data-hqbranch]'), c => c.textContent).join(' || '));
+  ok('B26 wrong HQ PIN refused; right PIN → hq_auth (Owner) → state_list with the HQ token → 3 tappable cards with labels',
+    !bad26.s && bad26.t === 'PIN ไม่ถูกต้อง' && calls.filter(c => c.type === 'hq_auth' && c.which === 'owner').length === 2 && list26.which === 'owner' && list26.t === 'HQ-TOK' &&
+    r26.cards === 'E-691102-K7Q,SBR-01,ZZ-01' && lbl26.indexOf('สระบุรี (สาขาหลัก) · SBR-01') >= 0 && lbl26.indexOf('งานวัดพระพุทธบาท · E-691102-K7Q') >= 0, JSON.stringify([bad26, r26.cards, lbl26.slice(0, 120)]));
+
+  // B27 tap a card → that branch read-only: cloud copy shown, read = Owner + HQ token, tabs + back button
+  await p.evaluate(() => { var t = getTokens(); t['SBR-01'] = { token: 'BR-OWNER', role: 'owner', ts: 1 }; saveTokens(t); });   // this device also holds an OWNER token of SBR-01
+  calls.length = 0;
+  await p.click('#page-hq [data-hqbranch="SBR-01"]'); await p.waitForTimeout(700);
+  const r27 = await view();
+  const rd27 = calls.filter(c => c.type === 'state_latest')[0] || {};
+  const st27 = await p.evaluate(() => ({ sales: S && S.sales ? S.sales.length : -1, role: getRole(), hero: document.getElementById('homeSalesCard').textContent.indexOf('125') >= 0 }));
+  ok('B27 card → SBR-01 read-only: tabs + HQ tab + "← กลับ HQ", header label, cloud copy (125) shown, read sent to Owner with the HQ token',
+    r27.br === 'SBR-01' && r27.mode === 'viewer' && r27.tab === 'home' && r27.tabs === 'home,sell,fry,stock,close,hist,hq' && r27.back &&
+    r27.hdr.indexOf('สระบุรี (สาขาหลัก)') > 0 && rd27.which === 'owner' && rd27.t === 'HQ-TOK' && st27.sales === 1 && st27.hero, JSON.stringify([r27, rd27, st27]));
+  ok('B28 HQ never takes the branch token role (device holds an OWNER token of SBR-01 → role staff in HQ)', st27.role === 'staff', st27.role);
+
+  // B29 nothing leaves the device and nothing is saved: every write path refused
+  calls.length = 0;
+  const r29 = await p.evaluate(() => {
+    var key = stateKey('SBR-01', S.date), before = localStorage.getItem(key), q0 = localStorage.getItem('puff10_syncQueue');
+    var toasts = {}, tEl = document.getElementById('toast');
+    window.confirm = function () { return true; };
+    sq[F[0].id] = 2;                                              // something in the sell cart
+    var fns = { submitSell: submitSell, saveFry: saveFry, saveDelivery: saveDelivery, submitGiftSale: submitGiftSale, saveReceive: saveReceive,
+      saveGiftReceive: saveGiftReceive, addWithdraw: addWithdraw, sendEmail: sendEmail, confirmCloseDay: confirmCloseDay };
+    Object.keys(fns).forEach(function (n) { tEl.textContent = ''; try { fns[n](); } catch (e) { toasts[n] = 'THREW ' + e.message; return; } toasts[n] = tEl.textContent; });
+    S.cash = { cash: 999 }; save();                               // keystroke-type save (cash / counts / withdrawals)
+    return { same: localStorage.getItem(key) === before, q: localStorage.getItem('puff10_syncQueue') === q0, closed: !!S.is_closed, wd: (S.withdrawals || []).length, toasts: toasts };
+  });
+  await p.waitForTimeout(500);
+  const notHQ29 = Object.keys(r29.toasts).filter(n => r29.toasts[n].indexOf('HQ ดูอย่างเดียว') < 0);
+  ok('B29 HQ drill-down: sale / fry / delivery / gift / receive / gift receive / withdraw / email / close / save → no write request, local day unchanged, not closed, each one says "HQ ดูอย่างเดียว"',
+    writes().length === 0 && r29.same && r29.q && !r29.closed && r29.wd === 0 && Object.keys(r29.toasts).length === 9 && notHQ29.length === 0, JSON.stringify([writes(), notHQ29, r29.same, r29.q, r29.closed, r29.wd]));
+
+  // B30 owner-only controls hidden; HQ may open history + export (D-b-4); price / stock correct / gift catalog refused
+  const r30 = await p.evaluate(() => {
+    applyRoleUI();
+    var o = { exp: document.getElementById('exportBlock').style.display !== 'none', corr: document.getElementById('btnStockCorrect').style.display === 'none',
+      gift: document.getElementById('btnAddGift').style.display === 'none', can: ['hist', 'export', 'price', 'stockCorrect', 'giftCatalog'].map(function (a) { return a + ':' + canDo(a); }).join(',') };
+    go('hist'); o.hist = currentTab === 'hist';
+    go('close'); o.settings = document.getElementById('ownerSettings') ? document.getElementById('ownerSettings').children.length : 0;
+    showAddGiftModal(); o.giftToast = document.getElementById('toast').textContent;
+    return o;
+  });
+  ok('B30 HQ: history + export allowed · price / stock correct / gift catalog / owner settings refused or hidden',
+    r30.exp && r30.corr && r30.gift && r30.hist && r30.settings === 0 && r30.can === 'hist:true,export:true,price:false,stockCorrect:false,giftCatalog:false' &&
+    r30.giftToast.indexOf('HQ ดูอย่างเดียว') >= 0, JSON.stringify(r30));
+
+  // B31 "← กลับ HQ" → dashboard again, branch closed, branch tabs hidden, branch pages unreachable
+  await p.click('#hqBackBtn'); await p.waitForTimeout(600);
+  const r31 = await view();
+  const go31 = await p.evaluate(() => { go('home'); go('sell'); return currentTab; });
+  ok('B31 "← กลับ HQ" → dashboard: no branch, HQ tab only, cards again, back button hidden; go(home) / go(sell) ignored',
+    r31.br === '' && r31.tab === 'hq' && r31.tabs === 'hq' && !r31.back && r31.cards.split(',').length === 3 && go31 === 'hq', JSON.stringify([r31, go31]));
+
+  // B39 event card: the header name can only come from the dashboard label (no branch info on this device, not a company)
+  await p.click('#page-hq [data-hqbranch="E-691102-K7Q"]'); await p.waitForTimeout(600);
+  const r39 = await p.evaluate(() => ({ info: getBranchInfo('E-691102-K7Q'), hdr: document.getElementById('hdrBranch').textContent }));
+  await p.click('#hqBackBtn'); await p.waitForTimeout(500);
+  ok('B39 event opened from HQ → header shows the server label from the dashboard (งานวัดพระพุทธบาท)', !r39.info && r39.hdr === 'งานวัดพระพุทธบาท', JSON.stringify(r39));
+
+  // B32 a franchise-looking name on the Owner dashboard is still read from Owner with the HQ token (readURLFor)
+  calls.length = 0;
+  await p.click('#page-hq [data-hqbranch="ZZ-01"]'); await p.waitForTimeout(700);
+  const rd32 = calls.filter(c => c.type === 'state_latest')[0] || {};
+  const r32 = await p.evaluate(() => ({ route: routeURL('ZZ-01') === FRANCHISE_URL, sales: S && S.sales ? S.sales.length : -1, hdr: document.getElementById('hdrBranch').textContent }));
+  ok('B32 ZZ-01 (name rule = Franchise) → read goes to Owner with the HQ token; header falls back to the code',
+    r32.route && rd32.which === 'owner' && rd32.t === 'HQ-TOK' && r32.sales === 1 && r32.hdr === 'ZZ-01', JSON.stringify([rd32, r32]));
+
+  // B33 HQ session runs out while a branch is open → next tab tap goes back to the HQ PIN
+  await p.evaluate(() => { localStorage.setItem('puff10_hqSession', String(Date.now() - 9 * 3600 * 1000)); go('stock'); });
+  await p.waitForTimeout(400);
+  const r33 = await view();
+  ok('B33 HQ session older than 8 h → tab tap returns to the HQ PIN (no branch open), still viewer',
+    r33.br === '' && r33.tab === 'hq' && r33.pin && r33.mode === 'viewer' && r33.tabs === 'hq', JSON.stringify(r33));
+
+  // B34 HQ never touches the sync queue + never overwrites a day this device still has to send
+  await p.fill('#page-hq input', '8642'); await p.click('#page-hq button'); await p.waitForTimeout(700);
+  const mine = await p.evaluate(() => {
+    var own = newState('SBR-01'); own.date = todayISO(); own.sales = [{ ts: 'mine', totalAmount: 999, totalPieces: 9, items: [] }];
+    localStorage.setItem(stateKey('SBR-01', own.date), JSON.stringify(own));
+    localStorage.setItem('puff10_syncQueue', JSON.stringify([{ branch: 'SBR-01', date: own.date, state: own, ts: 1 }]));
+    return own.date;
+  });
+  calls.length = 0;
+  await p.evaluate(() => { flushSyncQueue(); window.dispatchEvent(new Event('online')); });
+  await p.click('#page-hq [data-hqbranch="SBR-01"]'); await p.waitForTimeout(700);
+  const r34 = await p.evaluate(d => ({ q: JSON.parse(localStorage.getItem('puff10_syncQueue') || '[]').length,
+    local: JSON.parse(localStorage.getItem(stateKey('SBR-01', d))).sales[0].ts, shown: S.sales[0].ts }), mine);
+  ok('B34 HQ: queued item kept (flush + online do nothing, no state_save) · own unsent day not overwritten by the cloud copy',
+    r34.q === 1 && writes().length === 0 && r34.local === 'mine' && r34.shown === 'mine', JSON.stringify([writes(), r34]));
+
+  // B35 HQ logout → login screen; HQ flag + HQ session gone, this device's branch session kept, form back on its branch
+  await p.evaluate(() => {
+    localStorage.setItem('puff10_branchAuth', JSON.stringify({ branch: 'SBR-01', ts: 1 })); setToken('SBR-01', 'TOK-SBR', 'staff');
+    document.getElementById('loginBranchSel').value = ''; document.getElementById('loginFreeInput').value = '';   // only the restore may fill the form
+  });
+  await p.evaluate(() => doLogout()); await p.waitForTimeout(300);
+  const r35 = await p.evaluate(() => ({ hq: isHQMode(), s: localStorage.getItem('puff10_hqSession'), t: localStorage.getItem('puff10_hqToken'),
+    ba: !!localStorage.getItem('puff10_branchAuth'), login: document.getElementById('loginScreen').style.display, sel: document.getElementById('loginBranchSel').value, br: _loginBranch, badge: getComputedStyle(document.getElementById('deviceModeBadge')).display }));
+  calls.length = 0;
+  await login('SBR-01', '');
+  const r35b = await view();
+  await p.waitForTimeout(600);
+  ok('B35 HQ logout: HQ mode + session cleared, branch session kept, form on SBR-01 → branch login is a writer again (HQ tab hidden, queued item sent)',
+    !r35.hq && !r35.s && !r35.t && r35.ba && r35.login === 'flex' && r35.sel === 'SBR-01' && r35.br === 'SBR-01' && r35.badge === 'none' &&
+    r35b.mode === 'writer' && r35b.tabs === 'home,sell,fry,stock,close,hist' && writes().indexOf('state_save') >= 0, JSON.stringify([r35, r35b.tabs, writes()]));
+  const g35 = await p.evaluate(() => { go('hq'); return currentTab + ' | ' + document.getElementById('toast').textContent; });
+  ok('B36 outside HQ mode the HQ tab is unreachable', g35.indexOf('hq') !== 0 && g35.indexOf('สำหรับ HQ') > 0, g35);
+
+  // B37 reload while in HQ → opens on the login screen (never in HQ); the HQ link asks the PIN again (D-b3-1)
+  await p.evaluate(() => doLogout());
+  await p.click('#loginHQ'); await p.waitForTimeout(300);
+  await p.fill('#page-hq input', '8642'); await p.click('#page-hq button'); await p.waitForTimeout(500);
+  await p.reload(); await p.waitForTimeout(600);
+  const r37 = await p.evaluate(() => ({ hq: isHQMode(), login: document.getElementById('loginScreen').style.display, mode: getDeviceMode(), s: !!localStorage.getItem('puff10_hqSession') }));
+  calls.length = 0;
+  await p.click('#loginHQ'); await p.waitForTimeout(700);
+  const r37b = await view();
+  ok('B37 reload in HQ → login screen, writer · HQ link again → PIN asked again, old HQ session dropped (D-b3-1), no data loaded',
+    !r37.hq && r37.login !== 'none' && r37.mode === 'writer' && r37.s && r37b.hq && r37b.pin && r37b.cards === '' &&
+    calls.filter(c => c.type === 'state_list').length === 0 && await p.evaluate(() => !localStorage.getItem('puff10_hqSession')), JSON.stringify([r37, r37b]));
+
+  // B38 fail closed: HQ flag cannot be stored (storage full) → stays on the login screen, never an HQ shell that writes
+  await p.evaluate(() => doLogout());
+  const r38 = await p.evaluate(() => {
+    var orig = Storage.prototype.setItem;
+    Storage.prototype.setItem = function (k, v) { if (k === 'puff10_hqMode') throw new Error('QuotaExceededError'); return orig.call(this, k, v); };
+    try { openHQ(); } finally { Storage.prototype.setItem = orig; }
+    return { hq: isHQMode(), app: document.getElementById('mainApp').style.display, toast: document.getElementById('toast').textContent };
+  });
+  ok('B38 HQ flag not storable → refused with a toast, login screen stays', !r38.hq && r38.app !== 'block' && r38.toast.indexOf('เข้าโหมด HQ ไม่ได้') > 0, JSON.stringify(r38));
+  } catch (e) { ok('B3-CRASH b3 block stopped', false, String(e && e.message || e).split('\n')[0]); }
 
   // ─── B12 static rules on the lines this build added ───
   let added = '';

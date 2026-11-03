@@ -46,9 +46,9 @@ const srv = http.createServer((req, res) => {
     ok('T53 login refused while clock wrong (no state written)', document.getElementById('mainApp').style.display !== 'block' && !localStorage.getItem(stateKey(br, todayISO())));
     _clock.at = -1e12; doLogin(); await wait(300);
     ok('T54 stale check re-runs on login (still wrong -> still refused)', document.getElementById('mainApp').style.display !== 'block' && _clock.state === 'bad');
-    localStorage.setItem('puff7_device_mode', 'viewer'); renderClockUI();
+    localStorage.setItem('puff10_hqMode', '1'); renderClockUI();
     ok('T55 viewer mode is never blocked', vis('clockBlock') === 'none');
-    localStorage.setItem('puff7_device_mode', 'writer'); renderClockUI();
+    localStorage.removeItem('puff10_hqMode'); renderClockUI();
     await setServer(0); document.querySelector('#clockBlock .cb-btn').onclick(); await wait(300);
     ok('T56 "ตรวจอีกครั้ง" after fixing the clock -> block gone', _clock.state === 'ok' && vis('clockBlock') === 'none');
     doLogin(); await wait(500);

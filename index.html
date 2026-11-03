@@ -293,6 +293,10 @@
         .lt-pane { display: none }
         .lt-pane.active { display: block }
         #loginFreeInput { text-transform: uppercase }
+        /* 0018-b3: HQ link on the login screen + tappable HQ dashboard cards */
+        .login-hq { display: block; margin: 14px auto 0; border: none; background: transparent; font-family: var(--f); font-size: 12px; color: var(--muted); text-decoration: underline; cursor: pointer; padding: 8px 12px }
+        .hq-card { cursor: pointer }
+        .hq-card:active { transform: scale(.99) }
 
         .lf-chips {
             display: flex;
@@ -4051,13 +4055,9 @@
                 <input class="lf-input" id="loginPinInput" type="password" inputmode="numeric" placeholder="••••" autocomplete="off">
             </div>
             <button class="login-btn" id="loginBtn" onclick="doLogin()" disabled>เริ่มใช้งาน</button>
-            <div class="lf-group" id="deviceModeRow"
-                style="margin-top:10px;background:var(--card-soft);border-radius:14px;padding:10px 14px;display:flex;align-items:center;justify-content:space-between;gap:8px">
-                <span style="font-size:13px;font-family:var(--f);color:var(--muted)">โหมดเครื่อง</span>
-                <div id="deviceModeToggle" style="display:flex;gap:6px"></div>
-            </div>
             <div class="login-footer">ระบบจำข้อมูลในเครื่องนี้</div>
             <div class="login-footer build-tap" id="loginBuild"></div>
+            <button type="button" class="login-hq" id="loginHQ" onclick="openHQ()">HQ · ดูยอดทุกสาขา</button>
         </div>
     </div>
 
@@ -4074,6 +4074,7 @@
                     <div class="hdr-name" id="hdrName">—</div>
                     <div class="hdr-branch" id="hdrBranch">—</div>
                 </div>
+                <button class="logout-btn" id="hqBackBtn" onclick="hqBackToDashboard()" style="display:none">← กลับ HQ</button>
                 <button class="logout-btn" onclick="doLogout()">ออกจากระบบ</button>
             </div>
             <div id="headerClock"></div>
@@ -4704,6 +4705,7 @@
         }
         // Single write path for a day state (S or a re-based later day): local key + cloud queue
         function persistState(st) {
+            if (isHQMode()) return;   // 0018-b3: HQ is read-only — no day state is saved (local key or cloud queue)
             st.lastSaved = Date.now();
             localStorage.setItem(stateKey(currentBranch, st.date), JSON.stringify(st));
             localStorage.setItem("puff8_lastBranch", currentBranch);
@@ -5113,72 +5115,87 @@
             var btn = $("loginBtn");
             if (btn) btn.disabled = !(name && nick && phone && _loginBranch);
         }
-        // ── Device mode helpers (Task 1) ──────────────────────────────────────────
+        // ── HQ mode (0018-b3) — replaces the ✏/👁 device toggle (SPEC B7) ──
+        // Login screen link "HQ" → HQ PIN (HQ tab) → dashboard of the Owner-Sheet branches → tap a card = that branch, read-only.
+        // One switch: puff10_hqMode. Set only by openHQ(); cleared at boot and by doLogout(). While it is set this device
+        // never writes: getDeviceMode() = "viewer" (every existing viewer guard) + persistState() + denyHQ().
+        var HQ_SESSION_MS = 8 * 3600 * 1000;
+        var HQ_RO_TEXT = "👁 โหมด HQ ดูอย่างเดียว — บันทึกไม่ได้";
+        var _hqLabels = {};   // branch → label from the HQ dashboard (state_list), shown in the header while viewing it
+        function isHQMode() { return localStorage.getItem("puff10_hqMode") === "1"; }
+        function setHQMode(on) {
+            if (!on) { localStorage.removeItem("puff10_hqMode"); return; }
+            try { localStorage.setItem("puff10_hqMode", "1"); } catch (e) { }
+        }
+        function hqToken() { return localStorage.getItem("puff10_hqToken") || ""; }
+        function clearHQSession() {
+            _hqAuthed = false;
+            localStorage.removeItem("puff10_hqSession");
+            localStorage.removeItem("puff10_hqToken");
+        }
+        function getDeviceMode() { return isHQMode() ? "viewer" : "writer"; }
+        // Explicit write buttons call this first: HQ mode → toast + true (caller stops).
+        function denyHQ() {
+            if (!isHQMode()) return false;
+            showToast(HQ_RO_TEXT, true);
+            return true;
+        }
+        // HQ tab only in HQ mode; branch tabs hidden while HQ has no branch open (dashboard).
         function applyHQTabVisibility() {
-            var btn = $("tab-hq");
-            if (!btn) return;
-            btn.style.display = (getDeviceMode() === "viewer") ? "" : "none";
-        }
-        function getDeviceMode() {
-            return localStorage.getItem("puff7_device_mode") || "writer";
-        }
-        function setDeviceMode(m) {
-            localStorage.setItem("puff7_device_mode", m);
-            renderDeviceModeBadge();
-            renderDeviceModeToggle();
-            applyHQTabVisibility();
+            var hq = isHQMode();
+            TABS.forEach(function (t) {
+                var b = $("tab-" + t); if (!b) return;
+                b.style.display = (t === "hq") ? (hq ? "" : "none") : ((hq && !currentBranch) ? "none" : "");
+            });
         }
         function renderDeviceModeBadge() {
             var badge = $("deviceModeBadge");
             if (!badge) return;
-            var mode = getDeviceMode();
-            if (mode === "viewer") {
-                badge.textContent = "👁 ดูอย่างเดียว";
-                badge.style.background = "#FFF3CD";
-                badge.style.color = "#856404";
-            } else {
-                badge.textContent = "✏ ผู้บันทึก";
-                badge.style.background = "#D4EDDA";
-                badge.style.color = "#155724";
-            }
+            var hq = isHQMode();
+            badge.style.display = hq ? "" : "none";
+            badge.textContent = hq ? "👁 HQ ดูอย่างเดียว" : "";
+            badge.style.background = "#FFF3CD";
+            badge.style.color = "#856404";
         }
-        function renderDeviceModeToggle() {
-            var wrap = $("deviceModeToggle");
-            if (!wrap) return;
-            var cur = getDeviceMode();
-            // clear
-            while (wrap.firstChild) { wrap.removeChild(wrap.firstChild); }
-            var modes = [
-                { id: "writer", label: "✏ ผู้บันทึก" },
-                { id: "viewer", label: "👁 ดูอย่างเดียว" }
-            ];
-            modes.forEach(function (opt) {
-                var btn = el("button", {
-                    "data-mode": opt.id,
-                    css: [
-                        "padding:5px 10px",
-                        "border-radius:10px",
-                        "border:1.5px solid " + (cur === opt.id ? "var(--mustard)" : "#CCC"),
-                        "background:" + (cur === opt.id ? "var(--mustard)" : "#FFF"),
-                        "color:" + (cur === opt.id ? "var(--on-accent)" : "var(--muted)"),
-                        "font-size:12px",
-                        "font-family:var(--f)",
-                        "cursor:pointer",
-                        "transition:all .15s"
-                    ].join(";")
-                }, [opt.label]);
-                wrap.appendChild(btn);
+        function applyHQView() { applyRoleUI(); applyHQTabVisibility(); renderDeviceModeBadge(); updateHeaderInfo(); }
+        function openHQ() {
+            clearHQSession();    // D-b3-1: HQ PIN on every HQ entry — a shared branch device never keeps all-branch access
+            setHQMode(true);
+            if (!isHQMode()) { showToast("⚠️ พื้นที่เครื่องเต็ม — เข้าโหมด HQ ไม่ได้", true); return; }   // fail closed: never show HQ as a writer
+            currentBranch = ""; S = null; _backDate = null;
+            applyHQView();
+            showMainApp("hq");   // HQ tab asks the HQ PIN; the session then lasts while in HQ mode (max 8 h)
+        }
+        function hqOpenBranch(code) {
+            if (!isHQMode() || !code) return;
+            setBranch(code);     // its save() does nothing in HQ mode (persistState)
+            applyHQView();
+            go("home");
+            _lastCloudRefresh = 0; refreshFromCloud();   // viewer: the cloud copy replaces the local one, then re-render
+        }
+        function hqBackToDashboard() {
+            if (!isHQMode()) return;
+            currentBranch = ""; S = null;
+            applyHQView();
+            go("hq");
+        }
+        function onHQCardClick(ev) {
+            var c = ev.target && ev.target.closest ? ev.target.closest("[data-hqbranch]") : null;
+            if (c) hqOpenBranch(c.getAttribute("data-hqbranch"));
+        }
+        // Login screen → app. One path for a branch login (finishLogin) and for HQ (openHQ).
+        function showMainApp(tab) {
+            $("loginScreen").style.display = "none";
+            $("mainApp").style.display = "block";
+            requestAnimationFrame(function () {
+                go(tab);
+                requestAnimationFrame(function () {
+                    var cx = getNavCx(TABS.indexOf(currentTab));
+                    _navToCx = _navFromCx = cx;
+                    var p = $("navPath");
+                    if (p) p.setAttribute("d", buildNavPath(cx));
+                });
             });
-        }
-        function onDeviceModeToggleClick(ev) {
-            var t = ev.target;
-            while (t && t !== this) {
-                if (t.getAttribute && t.getAttribute("data-mode")) {
-                    setDeviceMode(t.getAttribute("data-mode"));
-                    return;
-                }
-                t = t.parentNode;
-            }
         }
         // ── Session tokens (issued by the server at login, one per branch) ──
         function getTokens() {
@@ -5195,9 +5212,11 @@
         function clearToken(b) { var t = getTokens(); delete t[b]; saveTokens(t); }
         function getTokenFor(b) { var t = getTokens()[b]; return (t && t.token) ? t.token : ""; }
         // Fail-closed: no token entry for this branch = staff (0018, SPEC B9).
-        function getRole() { var t = getTokens()[currentBranch]; return (t && t.role === "owner") ? "owner" : "staff"; }
-        // Token for cloud READS of branch b. Single source — 0018-b3 returns the HQ token in HQ mode.
-        function readTokenFor(b) { return getTokenFor(b); }
+        // HQ mode never takes the role of a branch token this device may hold (0018-b3).
+        function getRole() { if (isHQMode()) return "staff"; var t = getTokens()[currentBranch]; return (t && t.role === "owner") ? "owner" : "staff"; }
+        // Token + URL for cloud READS of branch b. HQ mode: the HQ token, Owner script only (HQ reads exist there only, SPEC §7).
+        function readTokenFor(b) { return isHQMode() ? hqToken() : getTokenFor(b); }
+        function readURLFor(b) { return isHQMode() ? OWNER_URL : routeURL(b); }
         // 0018: v8 tokens gave every company device role "owner" → drop them once; PIN asked once, sync queue kept.
         var AUTH_VERSION = "2";
         function migrateAuthVersion() {
@@ -5208,16 +5227,20 @@
         }
         // Staff = front-of-shop only. Everything that rewrites numbers, prices or history is owner-only.
         var STAFF_BLOCKED = { price: 1, stockCorrect: 1, giftCatalog: 1, hist: 1, export: 1 };
-        function canDo(action) { return !(getRole() === "staff" && STAFF_BLOCKED[action]); }
+        var HQ_ALLOWED = { hist: 1, export: 1 };   // D-b-4: HQ may read history + export a branch, never change it
+        function canDo(action) {
+            if (isHQMode()) return !!HQ_ALLOWED[action];
+            return !(getRole() === "staff" && STAFF_BLOCKED[action]);
+        }
         function denyStaff(action) {
             if (canDo(action)) return false;
-            showToast("🔒 เฉพาะเจ้าของร้าน", true);
+            showToast(isHQMode() ? HQ_RO_TEXT : "🔒 เฉพาะเจ้าของร้าน", true);
             return true;
         }
+        var ROLE_UI = { btnAddGift: "giftCatalog", btnStockCorrect: "stockCorrect", exportLbl: "export", exportBlock: "export" };
         function applyRoleUI() {
-            var hide = getRole() === "staff";
-            ["btnAddGift", "btnStockCorrect", "exportLbl", "exportBlock"].forEach(function (id) {
-                var x = $(id); if (x) x.style.display = hide ? "none" : "";
+            Object.keys(ROLE_UI).forEach(function (id) {
+                var x = $(id); if (x) x.style.display = canDo(ROLE_UI[id]) ? "" : "none";
             });
         }
         // Server rejected our token (expired, PIN changed, or wrong branch) — data stays queued.
@@ -5327,18 +5350,8 @@
                 setBranch(_loginBranch);
                 applyRoleUI();
                 if (getDeviceMode() !== "viewer") flushSyncQueue();   // send anything queued before re-login
-                renderDeviceModeBadge();    // Task 1: show mode badge in header
-                $("loginScreen").style.display = "none";
-                $("mainApp").style.display = "block";
-                requestAnimationFrame(function () {
-                    go("home");
-                    requestAnimationFrame(function () {
-                        var cx = getNavCx(TABS.indexOf(currentTab));
-                        _navToCx = _navFromCx = cx;
-                        var p = $("navPath");
-                        if (p) p.setAttribute("d", buildNavPath(cx));
-                    });
-                });
+                renderDeviceModeBadge();
+                showMainApp("home");
                 maybeNudgeCloseYesterday();   // Issue3: prompt to close an unclosed yesterday
                 // Non-blocking cloud prefetch: app is usable on local state now;
                 // recover/refresh in background, then re-render current tab (mirror refreshFromCloud).
@@ -5385,15 +5398,22 @@
             authAttempt(false);
         }
         function doLogout() {
+            var wasHQ = isHQMode();
             stopHQPolling();
             pauseTimer();
             _backDate = null; renderBackDateBanner();
-            clearBranchAuth();
+            if (wasHQ) {   // HQ logout ends the HQ session; this device's own branch session is left as it was
+                setHQMode(false); clearHQSession();
+                currentBranch = ""; S = null;
+            } else {
+                clearBranchAuth();
+            }
+            applyHQView();
             renderRecentChips();
             $("mainApp").style.display = "none";
             $("loginScreen").style.display = "flex";
             var lastStaff = getStaff();
-            restoreLoginForm(currentBranch);
+            restoreLoginForm(wasHQ ? (localStorage.getItem("puff8_lastBranch") || "") : currentBranch);
             if (lastStaff.name) {
                 var ln = $("loginName"); if (ln) ln.value = lastStaff.name;
                 var lk = $("loginNick"); if (lk) lk.value = lastStaff.nick;
@@ -5401,14 +5421,26 @@
             }
             updLoginBtn();
         }
+        // Display name of a branch: server label (event names, franchise shop names) → HQ dashboard label → BRANCH_CODES → code.
+        function branchLabel(b) {
+            var info = getBranchInfo(b);
+            var found = BRANCH_CODES.find(function (x) { return x.code === b; });
+            return (info && info.label) || _hqLabels[b] || (found ? found.label : b) || "—";
+        }
         function updateHeaderInfo() {
+            var hq = isHQMode();
+            var hb = $("hqBackBtn"); if (hb) hb.style.display = (hq && currentBranch) ? "" : "none";
+            var av = $("hdrAvatar"), nm = $("hdrName"), br = $("hdrBranch");
+            if (hq) {
+                if (av) av.textContent = "HQ";
+                if (nm) nm.textContent = "HQ · ดูอย่างเดียว";
+                if (br) br.textContent = currentBranch ? branchLabel(currentBranch) : "ภาพรวมทุกสาขา";
+                return;
+            }
             var staff = getStaff();
-            var found = BRANCH_CODES.find(function (b) { return b.code === currentBranch; });
-            var initials = staff.nick ? staff.nick.charAt(0).toUpperCase() : "?";
-            var av = $("hdrAvatar"); if (av) av.textContent = initials;
-            var nm = $("hdrName"); if (nm) nm.textContent = (staff.nick || "—") + " · " + (staff.name || "—");
-            var info = getBranchInfo(currentBranch);   // 0018: server label (event names, franchise shop names) first
-            var br = $("hdrBranch"); if (br) br.textContent = ((info && info.label) || (found ? found.label : currentBranch) || "—") + " · " + (staff.phone || "—");
+            if (av) av.textContent = staff.nick ? staff.nick.charAt(0).toUpperCase() : "?";
+            if (nm) nm.textContent = (staff.nick || "—") + " · " + (staff.name || "—");
+            if (br) br.textContent = branchLabel(currentBranch) + " · " + (staff.phone || "—");
         }
 
         // ── BUBBLE NAV ──
@@ -5509,11 +5541,15 @@
 
         // ── TAB NAVIGATION ──
         function go(tab) {
+            if (isHQMode()) {
+                if (currentBranch && !checkHQAuth()) { hqBackToDashboard(); return; }   // HQ session ended → back to the HQ PIN
+                if (!currentBranch && tab !== "hq") return;                              // dashboard: no branch open
+            }
             if (currentTab === "hq" && tab !== "hq") { stopHQPolling(); }
-            if (tab === "hq" && getDeviceMode() !== "viewer") { showToast("หน้านี้สำหรับ HQ เท่านั้น", true); return; }
+            if (tab === "hq" && !isHQMode()) { showToast("หน้านี้สำหรับ HQ เท่านั้น", true); return; }
             if (tab === "hist" && denyStaff("hist")) return;
             if (_backDate && _backDate.scope === "close" && tab !== "close") { showToast("กำลังปิดยอดวันที่ " + _backDate.date + " — กด ออกจากโหมดนี้ ก่อน", true); return; }
-            if (!currentBranch && tab !== "home") { showToast("กรุณา login ก่อนใช้งาน", true); return; }
+            if (!currentBranch && tab !== "home" && tab !== "hq") { showToast("กรุณา login ก่อนใช้งาน", true); return; }
             var prevIdx = TABS.indexOf(currentTab);   // capture BEFORE updating
             if (tab !== currentTab && _subTab[tab]) { setSubTab(tab, "puff"); }   // U2: entering sell/stock always starts on พัฟสติ๊ก
             currentTab = tab;
@@ -5834,7 +5870,7 @@
         }
 
         function saveDelivery() {
-            if (getDeviceMode() === "viewer") { showToast("โหมดดูอย่างเดียว 👁 สลับเป็นโหมดบันทึกก่อน", true); return; }
+            if (denyHQ()) return;
             if (!S) return;
             var gross = parseInt(($("dlvGross") || { value: "0" }).value) || 0;
             var net = parseInt(($("dlvNet") || { value: "0" }).value) || 0;
@@ -6127,7 +6163,7 @@
 
         // submitSell — per-item price
         function submitSell() {
-            if (getDeviceMode() === "viewer") { showToast("โหมดดูอย่างเดียว 👁 สลับเป็นโหมดบันทึกก่อน", true); return; }
+            if (denyHQ()) return;
             if (!S) return;
             var staff = getStaff();
             var items = [];
@@ -6270,7 +6306,7 @@
         }
 
         function saveFry() {
-            if (getDeviceMode() === "viewer") { showToast("โหมดดูอย่างเดียว 👁 สลับเป็นโหมดบันทึกก่อน", true); return; }
+            if (denyHQ()) return;
             if (!S) return;
             var items = [];
             F.forEach(function (f) {
@@ -6426,6 +6462,7 @@
             });
         }
         function saveReceive() {
+            if (denyHQ()) return;
             if (!S) return;
             var items = [];
             F.forEach(function (f) {
@@ -6563,6 +6600,7 @@
         }
 
         function addWithdraw() {
+            if (denyHQ()) return;
             if (!S) return;
             var ts = entryTs();
             S.withdrawals.push({ amount: 0, reason: "", ts: ts }); save(); renderWithdrawals(); calcClose();
@@ -6735,6 +6773,7 @@
         }
 
         function confirmCloseDay() {
+            if (denyHQ()) return;
             if (!S) return;
             if (!clockFresh()) { checkDeviceClock(function () { confirmCloseDay(); }); return; }   // L2-c: re-check right before closing
             if (clockBlocks()) return;
@@ -7097,6 +7136,7 @@
         }
         // stArg: state to report (close-day passes the closed day's S); onclick passes nothing → current S.
         function sendEmail(stArg, auto) {
+            if (denyHQ()) return;
             var st = (stArg && stArg.stock) ? stArg : S;
             if (!st) return;
             var br = st.branch || currentBranch;
@@ -7246,7 +7286,7 @@
             } else { if (res) res.style.display = "none"; if (btn) btn.style.display = "none"; }
         }
         function submitGiftSale() {
-            if (getDeviceMode() === "viewer") { showToast("โหมดดูอย่างเดียว 👁 สลับเป็นโหมดบันทึกก่อน", true); return; }
+            if (denyHQ()) return;
             if (!S || !currentBranch) return;
             var staff = getStaff(); if (!staff.name) { showToast("กรุณา login ก่อน", true); return; }
             var items = []; S.gift_catalog.forEach(function (g) { var qty = gq[g.id] || 0; if (qty > 0) items.push({ id: g.id, name: g.name, qty: qty, price: g.price, total: qty * g.price }); });
@@ -7292,6 +7332,7 @@
             renderGiftStockSummary();
         }
         function saveGiftReceive() {
+            if (denyHQ()) return;
             if (!S) return; var total = 0;
             S.gift_catalog.forEach(function (g) { var inp = $("gr-" + g.id); if (!inp) return; var v = parseInt(inp.value) || 0; if (v > 0) { S.gift_stock[g.id].received += v; total += v; inp.value = 0; } });
             if (!total) { showToast("ยังไม่ได้ใส่จำนวน", true); return; }
@@ -7338,6 +7379,7 @@
 
         window.addEventListener("DOMContentLoaded", function () {
             migrateAuthVersion();    // 0018: before anything reads a token
+            setHQMode(false);        // 0018-b3: the app always opens on the login screen, never in HQ mode
             renderBranchOptions();   // must run before lastBranch pre-select below
             var lastBranch = localStorage.getItem("puff8_lastBranch");
             var lastStaff = null;
@@ -7351,11 +7393,9 @@
             restoreLoginForm(lastBranch);
             var ltb = $("loginTabs"); if (ltb) ltb.addEventListener("click", onLoginTabClick);
             renderRecentChips();
-            renderDeviceModeToggle();  // Task 1: show mode toggle on login screen
-            applyHQTabVisibility();    // hide HQ tab for writer devices
+            applyHQTabVisibility();    // HQ tab only in HQ mode
             checkDeviceClock();        // L2-c: verify device clock at start (login screen included)
-            var dmt = $("deviceModeToggle");
-            if (dmt) dmt.addEventListener("click", onDeviceModeToggleClick);
+            var hqp = $("page-hq"); if (hqp) hqp.addEventListener("click", onHQCardClick);   // 0018-b3: dashboard card → branch (read-only)
             document.addEventListener("click", onSubTabClick);   // U2a sub-tabs (event delegation)
             document.addEventListener("focusin", function (e) {
                 if (e.target && e.target.type === "number") {
@@ -7430,11 +7470,7 @@
 
         var _flushing = false;
         function flushSyncQueue() {
-            if (getDeviceMode() === "viewer") {  // Task 2: viewer belt-and-suspenders
-                _flushing = false;
-                localStorage.setItem("puff10_syncQueue", "[]");
-                syncPending = 0; updateSyncIcon(); return;
-            }
+            if (getDeviceMode() === "viewer") return;   // HQ mode never sends; queued items wait for the next branch login (0018-b3: was wiped)
             if (_flushing) return;
             _flushing = true;
             var queue;
@@ -7518,6 +7554,12 @@
             });
         }
 
+        // True when the sync queue still holds this branch-day (written here, not yet on the cloud).
+        function isQueued(branch, date) {
+            var q, d = normDateStr(date);
+            try { q = JSON.parse(localStorage.getItem("puff10_syncQueue") || "[]"); } catch (e) { return false; }
+            return q.some(function (x) { return x.branch === branch && normDateStr(x.date) === d; });
+        }
         function prefetchCloudState(branch, callback) {
             if (!navigator.onLine) { callback(); return; }
             // Timeout safety: never block login more than 6 seconds
@@ -7528,7 +7570,7 @@
             function finish() {
                 if (!called) { called = true; clearTimeout(timer); callback(); }
             }
-            var baseUrl = getSyncURL(branch);
+            var baseUrl = readURLFor(branch);
             migrateBranchKeys(branch);
             // state_latest: returns the most recent state of this branch on cloud,
             // regardless of how many days ago it was saved (fixes multi-device gap bug)
@@ -7539,8 +7581,8 @@
                         var key = "puff7_" + safeBranch(branch) + "_" + normDateStr(data.date);
                         var isViewer = getDeviceMode() === "viewer";
                         if (isViewer) {
-                            // Viewer: cloud is truth, always overwrite local
-                            localStorage.setItem(key, JSON.stringify(data.state));
+                            // HQ: cloud is truth — except a day this device still has to send (its own unsynced work)
+                            if (!isQueued(branch, data.date)) localStorage.setItem(key, JSON.stringify(data.state));
                         } else {
                             // Writer: overwrite only if local is absent or empty (recovery)
                             var localRaw = localStorage.getItem(key);
@@ -7631,11 +7673,11 @@
             _hqPolling = false;
         }
 
+        // Single source of the 8-h HQ session rule (re-checked every time — an open page also expires).
         function checkHQAuth() {
-            if (_hqAuthed) return true;
-            var session = parseInt(localStorage.getItem("puff10_hqSession") || "0");
-            if (session && (Date.now() - session < 8 * 3600 * 1000)) { _hqAuthed = true; return true; }
-            return false;
+            var session = parseInt(localStorage.getItem("puff10_hqSession") || "0", 10);
+            _hqAuthed = !!session && (Date.now() - session < HQ_SESSION_MS);
+            return _hqAuthed;
         }
 
         function renderHQTab() {
@@ -7699,13 +7741,11 @@
                 if (onDone) onDone();
                 return;
             }
-            fetch(OWNER_URL + "?type=state_list&t=" + encodeURIComponent(localStorage.getItem("puff10_hqToken") || ""))
+            fetch(OWNER_URL + "?type=state_list&t=" + encodeURIComponent(hqToken()))
                 .then(function (r) { return r.json(); })
                 .then(function (data) {
                     if (data && data.auth) {   // HQ token expired or HQ PIN changed
-                        _hqAuthed = false;
-                        localStorage.removeItem("puff10_hqSession");
-                        localStorage.removeItem("puff10_hqToken");
+                        clearHQSession();
                         renderHQTab();
                         if (onDone) onDone();
                         return;
@@ -7731,12 +7771,13 @@
                         var s = byBranch[branch];
                         var sDateCanon = normDateStr(s.date);
                         var isToday = sDateCanon === today;
-                        var card = el("div", { css: "background:#fff;border-radius:14px;margin:8px 12px;padding:14px 16px;border:1px solid var(--cream2)" });
+                        _hqLabels[branch] = s.label || "";   // server label (event names); used by the header on drill-down
+                        var card = el("div", { cls: "hq-card", "data-hqbranch": branch, role: "button", css: "background:#fff;border-radius:14px;margin:8px 12px;padding:14px 16px;border:1px solid var(--cream2)" });
                         var top = el("div", { css: "display:flex;justify-content:space-between;align-items:center;margin-bottom:10px" });
                         var dot = isToday ? "#6B9E4B" : "#B0A090";
                         top.appendChild(el("div", { css: "display:flex;align-items:center;gap:8px" }, [
                             el("div", { css: "width:8px;height:8px;border-radius:50%;background:" + dot + ";flex-shrink:0" }),
-                            el("div", { txt: branch, css: "font-family:var(--fb);font-size:14px;color:var(--cocoa)" })
+                            el("div", { txt: (s.label && s.label !== branch) ? s.label + " · " + branch : branch, css: "font-family:var(--fb);font-size:14px;color:var(--cocoa)" })
                         ]));
                         top.appendChild(el("div", { txt: isToday ? "วันนี้" : sDateCanon, css: "font-size:10px;color:" + (isToday ? "var(--mustard-deep)" : "var(--muted)") }));
                         card.appendChild(top);
@@ -7758,6 +7799,7 @@
                         if (s.updated_at) {
                             card.appendChild(el("div", { txt: "อัปเดต: " + s.updated_at, css: "font-size:9px;color:var(--muted);margin-top:8px;text-align:right" }));
                         }
+                        card.appendChild(el("div", { txt: "แตะเพื่อดูสาขานี้ (ดูอย่างเดียว) ›", css: "font-size:11px;color:var(--mustard-deep);margin-top:8px;text-align:right" }));
                         pg2.appendChild(card);
                     });
                     pg2.appendChild(el("div", { css: "height:120px" }));
