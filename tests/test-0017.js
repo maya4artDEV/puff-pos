@@ -18,6 +18,8 @@ function ok(id, cond, info) {
 // Read files
 const html = fs.readFileSync(HTML_PATH, 'utf8');
 const manifestRaw = fs.readFileSync(MANIFEST_PATH, 'utf8');
+// Build stamp = the meta tag (single source); later builds bump it without editing this test.
+const STAMP = (/<meta name="build-version" content="([^"]+)">/.exec(html) || [])[1] || '';
 
 // ── T1: manifest parses; fields = §1 exactly; icon files exist; PNG IHDR w×h = declared sizes ──
 (function T1() {
@@ -96,15 +98,15 @@ const manifestRaw = fs.readFileSync(MANIFEST_PATH, 'utf8');
   ok('T3a no serviceWorker', html.indexOf('serviceWorker') === -1 && html.indexOf('navigator.serviceWorker') === -1);
 })();
 
-// ── T4: stamp 20261030.0017 on exactly 3 lines; old 20261029.0016 = 0 ──
+// ── T4: current stamp (meta) is YYYYMMDD.NNNN, on exactly 3 lines; old 20261029.0016 = 0 ──
 (function T4() {
   var lines = html.split('\n');
   var newCount = 0, oldCount = 0;
   lines.forEach(function (line) {
-    if (line.indexOf('20261030.0017') > -1) newCount++;
+    if (STAMP && line.indexOf(STAMP) > -1) newCount++;
     if (line.indexOf('20261029.0016') > -1) oldCount++;
   });
-  ok('T4a new stamp on exactly 3 lines', newCount === 3, 'found ' + newCount);
+  ok('T4a new stamp on exactly 3 lines', /^\d{8}\.\d{4}$/.test(STAMP) && newCount === 3, STAMP + ' found ' + newCount);
   ok('T4b old stamp 0 lines', oldCount === 0, 'found ' + oldCount);
 })();
 
@@ -163,7 +165,7 @@ const { chromium } = require('playwright');
     ok('T5g pwaPendingCount returns number', typeof window.pwaPendingCount() === 'number', window.pwaPendingCount());
 
     // T5h: pwaBuildStamp returns the stamp
-    ok('T5h pwaBuildStamp', window.pwaBuildStamp() === '20261030.0017', window.pwaBuildStamp());
+    ok('T5h pwaBuildStamp', window.pwaBuildStamp() === ${JSON.stringify(STAMP)}, window.pwaBuildStamp());
 
     return t;
   });

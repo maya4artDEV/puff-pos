@@ -14,8 +14,8 @@
     <meta name="theme-color" content="#6FA3D6">
     <link rel="manifest" href="manifest.webmanifest">
     <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
-    <meta name="build-version" content="20261030.0017">
-    <title>Puff Stick POS v12 · 20261030.0017</title>
+    <meta name="build-version" content="20261104.0017">
+    <title>Puff Stick POS v12 · 20261104.0017</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link
@@ -4068,7 +4068,7 @@
             <div id="deviceModeBadge"
                 style="font-size:9px;font-family:var(--f);padding:1px 6px;border-radius:8px;margin-bottom:4px"></div>
             <div id="buildVer" style="font-family:var(--f);font-size:9px;color:var(--muted);padding:0 0 6px;opacity:.6">
-                build 20261030.0017</div>
+                build 20261104.0017</div>
             <div id="backDateBanner" role="status" aria-live="polite"></div>
             <div id="clockBar" role="status"></div>
         </div>
@@ -4239,24 +4239,25 @@
                 </div>
                 <div class="card">
                     <div class="card-title">เงินจ่ายออกระหว่างวัน</div>
-                    <div class="tip">ค่าน้ำมันทอด ค่าน้ำมันรถ ฯลฯ</div>
+                    <div class="tip">เงินสดที่หยิบออกจากลิ้นชัก: ค่าน้ำมันทอด ค่าน้ำมันรถ เงินที่ส่งให้เจ้าของระหว่างวัน ฯลฯ</div>
                     <div id="withdrawList"></div>
                     <button class="abtn-outline" onclick="addWithdraw()">+ เพิ่มรายการจ่ายออก</button>
                 </div>
                 <div class="card">
                     <div class="card-title">นับเงิน · Reconcile</div>
+                    <div class="tip">เงินสดในลิ้นชัก = นับเงินที่เหลือจริงตอนนี้ รวมเงินทอน — ไม่ต้องรวมเงินที่จ่ายออกไปแล้ว ระบบบวกกลับให้เอง</div>
                     <div class="rec-row">
                         <span class="rec-label">เงินทอนที่เตรียมไว้</span>
                         <input class="cash-input" id="changeFloat" type="number" placeholder="0" oninput="onCashInput()">
                         <span class="rec-unit">บาท</span>
                     </div>
                     <div class="rec-row">
-                        <span class="rec-label">เงินสดจริง</span>
+                        <span class="rec-label">เงินสดในลิ้นชักตอนนี้ (รวมเงินทอน)</span>
                         <input class="cash-input" id="cashAmount" type="number" placeholder="0" oninput="onCashInput()">
                         <span class="rec-unit">บาท</span>
                     </div>
                     <div class="rec-row">
-                        <span class="rec-label warn-val">นำเงินออกระหว่างวัน</span>
+                        <span class="rec-label">+ เงินจ่ายออกระหว่างวัน (บวกกลับ)</span>
                         <input class="cash-input" id="withdrawTotal" type="number" value="0" readonly
                             style="opacity:.6">
                         <span class="rec-unit">บาท</span>
@@ -6499,8 +6500,7 @@
         function removeWithdraw(i) { S.withdrawals.splice(i, 1); save(); renderWithdrawals(); calcClose(); }
         function updateWithdrawSum() {
             if (!S || !S.withdrawals) return;
-            var sum = 0; S.withdrawals.forEach(function (w) { sum += w.amount || 0; });
-            var wt = $("withdrawTotal"); if (wt) wt.value = String(sum);
+            var wt = $("withdrawTotal"); if (wt) wt.value = String(withdrawSum(S));
         }
         function renderWithdrawals() {
             var box = $("withdrawList"); if (!box) return; clr(box);
@@ -6555,6 +6555,13 @@
             var c = (st && st.cash) || {};
             return { float: parseInt(c.float) || 0, cash: parseInt(c.cash) || 0, transfer: parseInt(c.transfer) || 0 };
         }
+        function withdrawSum(st) { var t = 0; ((st && st.withdrawals) || []).forEach(function (w) { t += w.amount || 0; }); return t; }
+        // Money received for the day. "cash" = what is in the drawer at close; payouts already left the drawer, so they are added back.
+        function calcMoney(st, cs) {
+            var cm = cashOf(st), tw = withdrawSum(st), dlv = (cs || calcCountSales(st)).dlvNet;
+            return { float: cm.float, cash: cm.cash, transfer: cm.transfer, withdrawals: tw, dlvNet: dlv,
+                drawerNet: cm.cash - cm.float, received: cm.cash - cm.float + tw + cm.transfer + dlv };
+        }
         function restoreCashInputs() {
             var c = (S && S.cash) || {};
             CASH_FIELDS.forEach(function (p) {
@@ -6578,11 +6585,9 @@
             if (!S) return;
             if (!S.counted) S.counted = {};
             var cs = calcCountSales(S);
-            var cm = cashOf(S);
-            var fl = cm.float, ca = cm.cash, tr = cm.transfer;
-            var tw = 0; (S.withdrawals || []).forEach(function (w) { tw += w.amount || 0; });
-            var dlv = cs.dlvNet;
-            var net = ca - fl - tw + tr + dlv;
+            var mm = calcMoney(S, cs);
+            var ca = mm.cash, tr = mm.transfer, dlv = mm.dlvNet;
+            var net = mm.received;
             var puffAmt = cs.amount;
             var tappedAmt = S.sales.reduce(function (a, s) { return a + s.totalAmount; }, 0);
             var countsComplete = cs.complete;
@@ -6590,7 +6595,7 @@
             var dlvGross = cs.dlvNet;   // name kept: this line of the breakdown shows Delivery NET
             var expected = puffAmt + giftAmt + dlvGross;
             var cr = $("closeResult"); if (!cr) return;
-            if (!ca && !tr && !dlv) { clr(cr); return; }
+            if (!ca && !tr && !dlv && !mm.withdrawals) { clr(cr); return; }
             if (!countsComplete) { clr(cr); var pend = el("div", { cls: "diff-card diff-over" }); pend.appendChild(el("div", { cls: "diff-icon", txt: "📝" })); var pinfo = el("div", { cls: "diff-info" }); pinfo.appendChild(el("div", { cls: "diff-title", txt: "นับเหลือหน้าตู้ให้ครบก่อน" })); pinfo.appendChild(el("div", { cls: "diff-sub", txt: "ระบบคิดยอดขายจากยอดนับเหลือ — ใส่จำนวนที่เหลือทุกไส้ที่ทอด" })); pend.appendChild(pinfo); cr.appendChild(pend); return; }
             var diff = net - expected;
             var cls2, icon, title, sub;
@@ -6669,9 +6674,8 @@
             if (clockBlocks()) return;
             if (S.is_closed) { showToast("วันนี้ปิดไปแล้ว", true); return; }
             // Validate: must have entered cash/transfer amounts
-            var cm = cashOf(S); var ca = cm.cash; var tr = cm.transfer;
-            var dlv = calcCountSales(S).dlvNet;
-            if (ca <= 0 && tr <= 0 && dlv <= 0) {
+            var mm = calcMoney(S);   // drawer cash can be 0 when everything was paid out / handed to the owner
+            if (mm.cash <= 0 && mm.transfer <= 0 && mm.dlvNet <= 0 && mm.withdrawals <= 0) {
                 showToast("กรุณาใส่ยอดเงินก่อนปิดวัน", true);
                 return;
             }
@@ -6891,15 +6895,14 @@
                 });
                 var ts2 = csx.pieces, tm = csx.amount;
                 crows.push([]); crows.push(["", "", "", "", "", "", "รวม", ts2, "", tm]);
-                var cmx = cashOf(data);
-                var cf2 = cmx.float, ca2 = cmx.cash, tr2 = cmx.transfer;
-                var tw2 = 0; (data.withdrawals || []).forEach(function (w) { tw2 += w.amount || 0; });
+                var mm2 = calcMoney(data, csx);
+                var cf2 = mm2.float, ca2 = mm2.cash, tr2 = mm2.transfer;
                 var giftTot = 0; (data.gift_sales || []).forEach(function (g) { giftTot += (g.grandTotal || 0); });
                 var dlvNet = csx.dlvNet, dlvGross = csx.dlvGross;
                 var expectedTotal = tm + giftTot + dlvNet;
-                var receivedTotal = ca2 - cf2 - tw2 + tr2 + dlvNet;
+                var receivedTotal = mm2.received;
                 crows.push([]); crows.push(["── บัญชีเงิน ──"]);
-                var moneyRows = [["เงินทอนที่เตรียมไว้", cf2], ["เงินสดจริง", ca2], ["หัก เงินทอน", -cf2], ["หัก ยอดจ่ายออก", -tw2], ["เงินสดสุทธิ", ca2 - cf2 - tw2], ["โอน/QR", tr2]];
+                var moneyRows = [["เงินทอนที่เตรียมไว้", cf2], ["เงินสดในลิ้นชัก (รวมเงินทอน)", ca2], ["หัก เงินทอน", -cf2], ["เงินสดในลิ้นชักสุทธิ", mm2.drawerNet], ["+ เงินจ่ายออกระหว่างวัน", mm2.withdrawals], ["โอน/QR", tr2]];
                 if (giftTot > 0) moneyRows.push(["+ ยอดของฝาก", giftTot]);
                 if (dlvNet > 0) moneyRows.push(["+ Delivery (Net)", dlvNet]);
                 if (dlvGross > 0) moneyRows.push(["  (Delivery Gross รวม)", dlvGross]);
