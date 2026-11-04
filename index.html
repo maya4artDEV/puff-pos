@@ -499,6 +499,11 @@
             transition: all .15s
         }
 
+        .role-chip.is-owner {
+            color: var(--blue);
+            border-color: var(--blue)
+        }
+
         .logout-btn:active {
             background: var(--bad);
             color: #fff;
@@ -4088,6 +4093,7 @@
                     <div class="hdr-name" id="hdrName">—</div>
                     <div class="hdr-branch" id="hdrBranch">—</div>
                 </div>
+                <button class="logout-btn role-chip" id="roleChip" type="button" style="display:none"></button>
                 <button class="logout-btn" id="hqBackBtn" onclick="hqBackToDashboard()" style="display:none">← กลับ HQ</button>
                 <button class="logout-btn" onclick="doLogout()">ออกจากระบบ</button>
             </div>
@@ -4792,12 +4798,11 @@
             }
             return out;
         }
+        // 0018-c1: back-date = owner role on every branch type (header switch or owner-PIN login). No HQ PIN on branch devices.
         function canBackDate() {
             if (!currentBranch || getDeviceMode() === "viewer") return false;
-            if (getSyncURL(currentBranch) === FRANCHISE_URL) return getRole() === "owner" && !!getTokenFor(currentBranch);
-            return true;   // owner branches: gated by HQ PIN at start (branch PIN is shared with staff)
+            return canDo("backdate") && !!getTokenFor(currentBranch);
         }
-        function backDateNeedsHQPin() { return getSyncURL(currentBranch) !== FRANCHISE_URL; }
         function renderBackDateEntry() {
             var box = $("backDateEntry"); if (!box) return; clr(box);
             if (_backDate || !canBackDate()) return;
@@ -4826,25 +4831,13 @@
             card.appendChild(row);
             var rIn = el("input", { cls: "lf-input", type: "text", maxlength: "120", placeholder: "เหตุผล เช่น พนักงานลืมบันทึก", autocomplete: "off" });
             card.appendChild(rIn);
-            var pIn = null;
-            if (backDateNeedsHQPin()) {
-                pIn = el("input", { cls: "lf-input", type: "password", inputmode: "numeric", maxlength: "6", placeholder: "HQ PIN", autocomplete: "off" });
-                card.appendChild(pIn);
-            }
             var startBtn = el("button", { cls: "abtn-outline", txt: "เริ่มลงยอดย้อนหลัง" });
             startBtn.onclick = function () {
+                if (denyStaff("backdate") || !canBackDate()) { renderBackDateEntry(); return; }   // role may have changed since render
                 if (!picked.date) { showToast("เลือกวันก่อน", true); return; }
                 var reason = rIn.value.trim();
                 if (reason.length < 4) { showToast("กรุณาระบุเหตุผล", true); return; }
-                if (!pIn) { enterBackDate(picked.date, reason); return; }
-                var pin = pIn.value.trim();
-                if (pin.length < 4) { showToast("ใส่ HQ PIN ก่อน", true); return; }
-                startBtn.disabled = true; startBtn.textContent = "กำลังตรวจสอบ...";
-                hqAuth(pin, function () { enterBackDate(picked.date, reason); }, function (why) {
-                    startBtn.disabled = false; startBtn.textContent = "เริ่มลงยอดย้อนหลัง";
-                    if (why !== "net") pIn.value = "";
-                    showToast(why === "net" ? "เชื่อมต่อไม่ได้ ลองใหม่" : "PIN ไม่ถูกต้อง", true);
-                });
+                enterBackDate(picked.date, reason);
             };
             card.appendChild(startBtn);
             box.appendChild(card);
@@ -5001,6 +4994,7 @@
         }
         function setBranch(branch) {
             clearCloudHist();   // b5: the cloud history set belongs to the branch that loaded it
+            if (_elev && _elev.branch !== branch) _elev = null;   // c1: owner switch belongs to one branch
             currentBranch = branch;
             S = loadBranch(branch);
             F.forEach(function (f) { sq[f.id] = 0; });
@@ -5179,6 +5173,7 @@
         function applyHQView() { applyRoleUI(); applyHQTabVisibility(); renderDeviceModeBadge(); updateHeaderInfo(); }
         function openHQ() {
             clearHQSession();    // D-b3-1: HQ PIN on every HQ entry — a shared branch device never keeps all-branch access
+            _elev = null;        // c1: no branch owner switch carries into HQ
             setHQMode(true);
             if (!isHQMode()) { showToast("⚠️ พื้นที่เครื่องเต็ม — เข้าโหมด HQ ไม่ได้", true); return; }   // fail closed: never show HQ as a writer
             currentBranch = ""; S = null; _backDate = null;
@@ -5229,10 +5224,30 @@
             saveTokens(t);
         }
         function clearToken(b) { var t = getTokens(); delete t[b]; saveTokens(t); }
-        function getTokenFor(b) { var t = getTokens()[b]; return (t && t.token) ? t.token : ""; }
+        // Token sent for branch b. While the header switch is on (c1) = the owner token in memory, so owner-only
+        // server calls (history, settings) work; the stored staff token stays untouched underneath.
+        function getTokenFor(b) {
+            if (_elev && _elev.branch === b) return _elev.token;
+            var t = getTokens()[b]; return (t && t.token) ? t.token : "";
+        }
+        // ── Owner switch (0018-c1, SPEC §5) ──
+        // _elev = {branch, token}: owner token from the header switch — memory only, so reload / app close = staff again.
+        // puff10_asStaff = {branch: 1}: an owner-PIN device handed to staff (👑 → 👤). Cleared by the next owner-PIN login.
+        var _elev = null;
+        function getAsStaffMap() { try { return JSON.parse(localStorage.getItem("puff10_asStaff") || "{}") || {}; } catch (e) { return {}; } }
+        function setAsStaff(b, on) {
+            var m = getAsStaffMap();
+            if (on) m[b] = 1; else delete m[b];
+            try { localStorage.setItem("puff10_asStaff", JSON.stringify(m)); return true; } catch (e) { showToast("⚠️ พื้นที่เครื่องเต็ม — สลับไม่ได้", true); return false; }
+        }
         // Fail-closed: no token entry for this branch = staff (0018, SPEC B9).
         // HQ mode never takes the role of a branch token this device may hold (0018-b3).
-        function getRole() { if (isHQMode()) return "staff"; var t = getTokens()[currentBranch]; return (t && t.role === "owner") ? "owner" : "staff"; }
+        function getRole() {
+            if (isHQMode()) return "staff";
+            if (_elev && _elev.branch === currentBranch) return "owner";
+            var t = getTokens()[currentBranch];
+            return (t && t.role === "owner" && !getAsStaffMap()[currentBranch]) ? "owner" : "staff";
+        }
         // Token + URL for cloud READS of branch b. HQ mode: the HQ token, Owner script only (HQ reads exist there only, SPEC §7).
         function readTokenFor(b) { return isHQMode() ? hqToken() : getTokenFor(b); }
         function readURLFor(b) { return isHQMode() ? OWNER_URL : routeURL(b); }
@@ -5245,7 +5260,7 @@
             try { localStorage.setItem("puff10_authv", AUTH_VERSION); } catch (e) { }
         }
         // Staff = front-of-shop only. Everything that rewrites numbers, prices or history is owner-only.
-        var STAFF_BLOCKED = { price: 1, stockCorrect: 1, giftCatalog: 1, hist: 1, export: 1 };
+        var STAFF_BLOCKED = { price: 1, stockCorrect: 1, giftCatalog: 1, hist: 1, export: 1, backdate: 1, settings: 1 };
         var HQ_ALLOWED = { hist: 1, export: 1 };   // D-b-4: HQ may read history + export a branch, never change it
         function canDo(action) {
             if (isHQMode()) return !!HQ_ALLOWED[action];
@@ -5262,8 +5277,116 @@
                 var x = $(id); if (x) x.style.display = canDo(ROLE_UI[id]) ? "" : "none";
             });
         }
+        // Header chip 👤 พนักงาน ⇄ 👑 เจ้าของ. Hidden in HQ mode and with no branch open.
+        function renderRoleChip() {
+            var c = $("roleChip"); if (!c) return;
+            var show = !!currentBranch && !isHQMode();
+            c.style.display = show ? "" : "none";
+            if (!show) return;
+            var own = getRole() === "owner";
+            c.textContent = own ? "👑 เจ้าของ" : "👤 พนักงาน";
+            c.classList.toggle("is-owner", own);
+            c.title = own ? "แตะเพื่อสลับเป็นพนักงาน" : "แตะเพื่อสลับเป็นเจ้าของ (ใส่รหัสเจ้าของ)";
+        }
+        function onRoleChipClick() {
+            if (!currentBranch || isHQMode()) return;
+            if (_elev && _elev.branch === currentBranch) { dropElevation(); showToast("กลับเป็นพนักงานแล้ว"); return; }
+            if (getRole() === "owner") {   // owner-PIN device handed to staff: owner PIN needed to come back
+                if (!setAsStaff(currentBranch, true)) return;
+                clearCloudHist(); applyRoleChange();
+                showToast("สลับเป็นพนักงานแล้ว — กลับเป็นเจ้าของต้องใส่รหัสเจ้าของ");
+                return;
+            }
+            if (navigator.onLine === false) { showToast("ต้องต่อเน็ตเพื่อสลับเป็นเจ้าของ", true); return; }
+            openRoleModal();
+        }
+        function closeRoleModal() { var m = $("roleModal"); if (m && m.parentNode) m.parentNode.removeChild(m); }
+        function openRoleModal() {
+            closeRoleModal();
+            var ov = el("div", { cls: "modal-overlay open", id: "roleModal" });
+            var sh = el("div", { cls: "modal-sheet" });
+            sh.appendChild(el("div", { cls: "modal-handle" }));
+            sh.appendChild(el("h4", { cls: "modal-title", txt: "🔑 สลับเป็นเจ้าของร้าน" }));
+            sh.appendChild(el("div", { css: "font-size:12px;color:var(--muted);margin:4px 0 12px", txt: "ใส่รหัสเจ้าของ · ไม่ได้ใช้งาน " + (OWNER_IDLE_MS / 60000) + " นาที จะกลับเป็นพนักงานเอง" }));
+            var inp = el("input", { cls: "lf-input", id: "roleModalPin", type: "password", inputmode: "numeric", maxlength: "6", placeholder: "รหัสเจ้าของ", autocomplete: "off" });
+            var msg = el("div", { id: "roleModalMsg", css: "font-size:12px;color:#D26A5C;min-height:16px;margin:6px 0" });
+            var ok = el("button", { cls: "abtn", id: "roleModalOk", type: "button", txt: "ยืนยัน" });
+            var no = el("button", { cls: "abtn-outline", type: "button", css: "margin-top:8px", txt: "ยกเลิก" });
+            ok.onclick = function () {
+                var pin = inp.value.trim();
+                if (pin.length < 4) { msg.textContent = "ใส่รหัสเจ้าของ 4–6 หลัก"; return; }
+                ok.disabled = true; ok.textContent = "กำลังตรวจสอบ...";
+                elevateOwner(pin, function (err) {
+                    if (!err) { closeRoleModal(); showToast("👑 สลับเป็นเจ้าของแล้ว"); return; }
+                    ok.disabled = false; ok.textContent = "ยืนยัน";
+                    inp.value = ""; msg.textContent = err;
+                });
+            };
+            no.onclick = closeRoleModal;
+            inp.addEventListener("keyup", function (ev) { if (ev.key === "Enter") ok.onclick(); });
+            ov.onclick = function (ev) { if (ev.target === ov) closeRoleModal(); };
+            sh.appendChild(inp); sh.appendChild(msg); sh.appendChild(ok); sh.appendChild(no);
+            ov.appendChild(sh);
+            document.body.appendChild(ov);
+            inp.focus();
+        }
+        // Owner PIN → the branch's own script (branch_auth, same call as login). onDone(null) = owner now, else Thai error text.
+        function elevateOwner(pin, onDone) {
+            var b = currentBranch, info = getBranchInfo(b);
+            fetchJSON(routeURL(b), {
+                method: "POST", mode: "cors",
+                headers: { "Content-Type": "text/plain;charset=utf-8" },
+                body: JSON.stringify({ type: "branch_auth", branch: b, pin: pin, kind: info ? info.type : undefined })
+            }, 12000).then(function (d) {
+                if (b !== currentBranch || isHQMode()) { onDone("เปลี่ยนสาขาแล้ว — ลองใหม่"); return; }
+                if (!d || !d.ok) { onDone(authErrorText(d && d.error, true)); return; }
+                if (d.role !== "owner" || !d.token) { onDone("รหัสนี้เป็นรหัสพนักงาน — ใช้รหัสเจ้าของ"); return; }
+                _elev = { branch: b, token: d.token };
+                noteActivity();
+                applyRoleChange();
+                onDone(null);
+            }).catch(function () { onDone("ต้องต่อเน็ตเพื่อสลับเป็นเจ้าของ"); });
+        }
+        // Back to staff: owner token dropped, owner-only data (cloud history) cleared, owner-only pages left.
+        function dropElevation() {
+            _elev = null;
+            clearCloudHist();
+            applyRoleChange();
+        }
+        // ONE place that re-applies a role change to the screen (switch on / off, handed to staff, idle revert).
+        function applyRoleChange() {
+            applyRoleUI();
+            updateHeaderInfo();
+            if (!currentBranch || isHQMode()) return;
+            if (_backDate && !canBackDate()) { restoreToday(); return; }   // past day already saved; restoreToday → home
+            if (currentTab === "hist" && !canDo("hist")) { go("home"); return; }
+            go(currentTab);   // re-render owner-only parts (price edit, back-date entry, owner settings)
+        }
+        // ── ONE idle timer (0018-c1): owner switch → staff after 15 min · HQ mode → logged out after 5 min (Tony 04/11) ──
+        var OWNER_IDLE_MS = 15 * 60 * 1000;
+        var HQ_IDLE_MS = 5 * 60 * 1000;
+        var _lastAct = Date.now();
+        function noteActivity() { _lastAct = Date.now(); }
+        function idleTick() {
+            var idle = Date.now() - _lastAct;
+            if (isHQMode() && idle >= HQ_IDLE_MS) {
+                doLogout();
+                showToast("ออกจากโหมด HQ แล้ว — ไม่ได้ใช้งาน " + (HQ_IDLE_MS / 60000) + " นาที", true);
+                return;
+            }
+            if (_elev && idle >= OWNER_IDLE_MS) {
+                closeRoleModal();
+                dropElevation();
+                showToast("กลับเป็นพนักงานแล้ว — ไม่ได้ใช้งาน " + (OWNER_IDLE_MS / 60000) + " นาที");
+            }
+        }
         // Server rejected our token (expired, PIN changed, or wrong branch) — data stays queued.
         function handleAuthFail(b) {
+            if (_elev && _elev.branch === b) {   // c1: the switched owner token was refused (owner PIN changed) → back to staff, stay logged in
+                if (b === currentBranch) { dropElevation(); showToast("🔒 สิทธิ์เจ้าของหมดอายุ — กลับเป็นพนักงาน", true); }
+                else _elev = null;
+                return;
+            }
             clearToken(b);
             if (b === currentBranch) {
                 showToast("🔒 สิทธิ์การเข้าใช้หมดอายุ — กรุณาเข้าสู่ระบบใหม่", true);
@@ -5390,6 +5513,7 @@
             function onAuthOk(d) {
                 if (d && d.ok) {
                     if (d.token) setToken(_loginBranch, d.token, d.role);
+                    if (d.role !== "staff") setAsStaff(_loginBranch, false);   // c1: an owner-PIN login ends "handed to staff"
                     setBranchInfo(_loginBranch, d.type || _loginTab, d.label);   // v8 server sends no type → the tab is the type
                     setBranchAuth(_loginBranch);
                     if (_loginTab === "franchise") pushRecentBranch(_loginBranch);
@@ -5422,6 +5546,7 @@
             pauseTimer();
             _backDate = null; renderBackDateBanner();
             clearCloudHist();
+            _elev = null; closeRoleModal();
             if (wasHQ) {   // HQ logout ends the HQ session; this device's own branch session is left as it was
                 setHQMode(false); clearHQSession();
                 currentBranch = ""; S = null;
@@ -5448,6 +5573,7 @@
             return (info && info.label) || _hqLabels[b] || (found ? found.label : b) || "—";
         }
         function updateHeaderInfo() {
+            renderRoleChip();
             var hq = isHQMode();
             var hb = $("hqBackBtn"); if (hb) hb.style.display = (hq && currentBranch) ? "" : "none";
             var av = $("hdrAvatar"), nm = $("hdrName"), br = $("hdrBranch");
@@ -7328,7 +7454,7 @@
         function renderOwnerSettings() {
             var box = $("ownerSettings"); if (!box) return; clr(box);
             if (!currentBranch || getSyncURL(currentBranch) !== FRANCHISE_URL) return;
-            if (getRole() !== "owner" || !getTokenFor(currentBranch)) return;
+            if (!canDo("settings") || !getTokenFor(currentBranch)) return;
             var card = el("div", { cls: "card", css: "margin-top:12px" });
             card.appendChild(el("span", { cls: "sec-lbl", txt: "⚙️ ตั้งค่าเจ้าของร้าน" }));
             card.appendChild(el("div", { txt: "อีเมลรับรายงานปิดวัน", css: "font-size:12px;color:var(--muted);margin:6px 0 4px" }));
@@ -7527,6 +7653,11 @@
             applyHQTabVisibility();    // HQ tab only in HQ mode
             checkDeviceClock();        // L2-c: verify device clock at start (login screen included)
             var hqp = $("page-hq"); if (hqp) hqp.addEventListener("click", onHQCardClick);   // 0018-b3: dashboard card → branch (read-only)
+            var rc = $("roleChip"); if (rc) rc.addEventListener("click", onRoleChipClick);   // 0018-c1: header owner switch
+            document.addEventListener("pointerdown", noteActivity, true);                    // 0018-c1: ONE idle timer
+            document.addEventListener("keydown", noteActivity, true);
+            document.addEventListener("visibilitychange", function () { if (!document.hidden) idleTick(); });   // phone woke up: check before the next tap counts
+            setInterval(idleTick, 30000);
             document.addEventListener("click", onSubTabClick);   // U2a sub-tabs (event delegation)
             document.addEventListener("focusin", function (e) {
                 if (e.target && e.target.type === "number") {
@@ -7819,7 +7950,7 @@
         }
 
 
-        // Single source for the HQ PIN check (HQ tab + L2 back-date gate). onFail("bad"|"net")
+        // Single source for the HQ PIN check (HQ tab only — back-date uses the owner role since 0018-c1). onFail("bad"|"net")
         function hqAuth(pin, onOk, onFail) {
             fetch(OWNER_URL, {
                 method: "POST", mode: "cors",
