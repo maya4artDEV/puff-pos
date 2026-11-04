@@ -305,6 +305,12 @@
         .hq-fry > div { flex: 1; background: #FFF4D6; border-radius: 10px; padding: 8px 6px; text-align: center }
         .hq-fry-n { font-family: var(--fn); font-size: 22px; font-weight: 800 }
         .hq-fry-l { font-size: 10px; color: var(--muted); margin-top: 1px }
+        /* 0018-b5: ☁ history from the cloud (ประวัติ) */
+        .hc-row { display: flex; gap: 6px; align-items: center; margin-top: 8px }
+        .hc-row .lf-input { flex: 1; min-width: 0; padding: 10px 12px; font-size: 14px }
+        .hc-row .abtn, .hc-row .abtn-outline { width: auto; flex: none; margin: 0; padding: 10px 14px }
+        .hc-status { font-size: 11px; color: var(--muted); margin-top: 6px }
+        .card.hc-on { border: 2px solid var(--mustard-deep) }
 
         .lf-chips {
             display: flex;
@@ -4326,6 +4332,7 @@
 
             <!-- HISTORY -->
             <div class="page" id="page-hist">
+                <div id="histCloudCard"></div>
                 <div id="histWeekCard"></div>
                 <div class="card" id="histBarCard"></div>
                 <span class="sec-lbl">วันที่ผ่านมา · Daily log</span>
@@ -4993,6 +5000,7 @@
             go("home");
         }
         function setBranch(branch) {
+            clearCloudHist();   // b5: the cloud history set belongs to the branch that loaded it
             currentBranch = branch;
             S = loadBranch(branch);
             F.forEach(function (f) { sq[f.id] = 0; });
@@ -5186,7 +5194,7 @@
         }
         function hqBackToDashboard() {
             if (!isHQMode()) return;
-            currentBranch = ""; S = null;
+            currentBranch = ""; S = null; clearCloudHist();
             applyHQView();
             go("hq");
         }
@@ -5413,6 +5421,7 @@
             stopHQPolling();
             pauseTimer();
             _backDate = null; renderBackDateBanner();
+            clearCloudHist();
             if (wasHQ) {   // HQ logout ends the HQ session; this device's own branch session is left as it was
                 setHQMode(false); clearHQSession();
                 currentBranch = ""; S = null;
@@ -6810,35 +6819,148 @@
             if (_backDate) afterBackDateClose();   // L2/Issue3: re-base later days, then next back day or today
         }
 
+        // ── 0018-b5: history from the cloud (D-b3-3) ──
+        // ONE day source for ประวัติ (histDays): this device's own days, or — while it is open — the set loaded from the
+        // cloud with GET state_range on readURLFor / readTokenFor (HQ = Owner + HQ token; branch owner = own script + token).
+        // The cloud set lives in memory only: never written to the device; cleared on branch change, back to HQ, logout.
+        var CLOUD_HIST_MAX_DAYS = 62;   // = STATE_RANGE_MAX_DAYS in gs/Access.gs
+        var HC_MONTHS = ["ม.ค.", "ก.พ.", "มี.ค.", "เม.ย.", "พ.ค.", "มิ.ย.", "ก.ค.", "ส.ค.", "ก.ย.", "ต.ค.", "พ.ย.", "ธ.ค."];
+        var _cloudHist = null;          // {branch, from, to, days:[{date, state}], bad}
+        var _cloudHistReq = 0;          // id of the newest request — an older or cancelled answer is dropped
+        function clearCloudHist() { _cloudHist = null; _cloudHistReq++; }
+        function cloudHistOpen() { return !!(_cloudHist && currentBranch && _cloudHist.branch === currentBranch); }
+        // [{date: "dd/mm/yyyy", state}] newest first, by calendar date (not by key text)
+        function histDays() {
+            var out = [];
+            if (cloudHistOpen()) {
+                _cloudHist.days.forEach(function (x) { if (x && x.state && typeof x.state === "object") out.push({ date: normDateStr(x.date), state: x.state }); });
+            } else if (currentBranch) {
+                var prefix = "puff7_" + safeBranch(currentBranch) + "_";
+                for (var i = 0; i < localStorage.length; i++) {
+                    var k = localStorage.key(i);
+                    if (!k || k.indexOf(prefix) !== 0) continue;
+                    var st = null; try { st = JSON.parse(localStorage.getItem(k)); } catch (e) { }
+                    if (st) out.push({ date: k.slice(prefix.length), state: st });
+                }
+            }
+            out.sort(function (a, b) { return dateSortKey(b.date) - dateSortKey(a.date); });
+            return out;
+        }
+        // "dd/mm/yyyy" (BE) → day number, null when not a real date
+        function beDayNum(ds) {
+            var p = normDateStr(ds).split("/"), d = +p[0], m = +p[1], y = +p[2] - 543;
+            if (p.length !== 3 || !d || !m || !y) return null;
+            var t = Date.UTC(y, m - 1, d), c = new Date(t);
+            return (c.getUTCDate() === d && c.getUTCMonth() === m - 1) ? Math.round(t / 864e5) : null;
+        }
+        // <input type=date> value "yyyy-mm-dd" (CE) → "dd/mm/yyyy" (BE)
+        function inputDateBE(v) {
+            var m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(v || ""));
+            return m ? m[3] + "/" + m[2] + "/" + (+m[1] + 543) : "";
+        }
+        function cloudHistErrText(d) {
+            if (d && d.auth) return "🔒 สิทธิ์หมดอายุ — ออกจากระบบแล้วเข้าใหม่";
+            var map = { owner_only: "🔒 เฉพาะเจ้าของร้าน", range_too_long: "เลือกได้ไม่เกิน " + CLOUD_HIST_MAX_DAYS + " วัน", bad_date: "วันที่ไม่ถูกต้อง", bad_request: "ข้อมูลไม่ครบ" };
+            if (d && d.error && map[d.error]) return map[d.error];
+            if (d && d.ok && !d.states) return "เซิร์ฟเวอร์ยังไม่รองรับประวัติจากคลาวด์ (รออัปเดต)";
+            return "ดึงข้อมูลไม่สำเร็จ" + (d && d.error ? " (" + d.error + ")" : "");
+        }
+        function cloudHistFail(msg) {
+            var st = $("hcStatus"); if (st) st.textContent = msg;
+            var btn = $("hcLoad"); if (btn) btn.disabled = false;
+            showToast(msg, true);
+        }
+        // from / to: "dd/mm/yyyy" BE. Checked here and again by the server.
+        function loadCloudHist(from, to) {
+            var a = beDayNum(from), z = beDayNum(to);
+            if (a === null || z === null) { cloudHistFail("เลือกเดือน หรือวันที่เริ่ม + วันที่สิ้นสุด"); return; }
+            if (z < a) { cloudHistFail("วันที่สิ้นสุดต้องไม่ก่อนวันที่เริ่ม"); return; }
+            if (z - a + 1 > CLOUD_HIST_MAX_DAYS) { cloudHistFail("เลือกได้ไม่เกิน " + CLOUD_HIST_MAX_DAYS + " วัน"); return; }
+            var b = currentBranch, id = ++_cloudHistReq;
+            var st = $("hcStatus"); if (st) st.textContent = "กำลังดึงข้อมูล " + from + " – " + to + " …";
+            var btn = $("hcLoad"); if (btn) btn.disabled = true;
+            var url = readURLFor(b) + "?type=state_range&branch=" + encodeURIComponent(b) + "&from=" + encodeURIComponent(from) +
+                "&to=" + encodeURIComponent(to) + "&t=" + encodeURIComponent(readTokenFor(b));
+            fetchJSON(url, { method: "GET" }, 30000).then(function (d) {
+                if (id !== _cloudHistReq || b !== currentBranch) return;   // closed, another branch, or a newer request
+                if (!d || !d.ok || !d.states || !d.states.forEach) { cloudHistFail(cloudHistErrText(d)); return; }
+                _cloudHist = { branch: b, from: from, to: to, days: d.states, bad: d.bad || 0 };
+                renderHist();
+            }).catch(function () {
+                if (id === _cloudHistReq && b === currentBranch) cloudHistFail("เชื่อมต่อไม่ได้ ลองใหม่อีกครั้ง");
+            });
+        }
+        // Card at the top of ประวัติ: month of the last 12, or from–to → ดึงข้อมูล; while open → what is shown + ปิด
+        function renderCloudHistCard() {
+            var box = $("histCloudCard"); if (!box) return; clr(box);
+            if (!currentBranch || !canDo("hist")) return;
+            var open = cloudHistOpen();
+            var card = el("div", { cls: "card" + (open ? " hc-on" : "") });
+            card.appendChild(el("div", { cls: "card-title", txt: "☁ ประวัติจากคลาวด์" }));
+            if (open) {
+                card.appendChild(el("div", { cls: "hc-status", txt: "กำลังแสดง " + _cloudHist.from + " – " + _cloudHist.to + " · " + histDays().length + " วัน" +
+                    (_cloudHist.bad ? " · อ่านไม่ได้ " + _cloudHist.bad + " วัน" : "") + " · ไม่ได้บันทึกลงเครื่อง" }));
+                var x = el("button", { cls: "abtn-outline", id: "hcClose", css: "margin-top:8px", txt: "ปิด · กลับไปดูข้อมูลในเครื่อง" });
+                x.onclick = function () { clearCloudHist(); renderHist(); };
+                card.appendChild(x);
+                box.appendChild(card);
+                return;
+            }
+            card.appendChild(el("div", { cls: "hc-status", txt: "ดูยอดย้อนหลังที่บันทึกบนคลาวด์ (เช่น เครื่องใหม่) · เลือกเดือน หรือช่วงวันที่ ไม่เกิน " + CLOUD_HIST_MAX_DAYS + " วัน" }));
+            var tp = normDateStr(todayISO()).split("/"), mo = +tp[1], yr = +tp[2];
+            var sel = el("select", { cls: "lf-input", id: "hcMonth", "aria-label": "เดือน" }, [el("option", { value: "", txt: "— เลือกเดือน —" })]);
+            for (var i = 0; i < 12; i++) {
+                var mm = mo - i, yy = yr;
+                while (mm < 1) { mm += 12; yy--; }
+                sel.appendChild(el("option", { value: (mm < 10 ? "0" : "") + mm + "/" + yy, txt: HC_MONTHS[mm - 1] + " " + yy }));
+            }
+            var fromIn = el("input", { cls: "lf-input", id: "hcFrom", type: "date", "aria-label": "ตั้งแต่วันที่" });
+            var toIn = el("input", { cls: "lf-input", id: "hcTo", type: "date", "aria-label": "ถึงวันที่" });
+            sel.onchange = function () { fromIn.value = ""; toIn.value = ""; };
+            fromIn.oninput = toIn.oninput = function () { sel.value = ""; };
+            var go1 = el("button", { cls: "abtn", id: "hcLoad", txt: "ดึงข้อมูล" });
+            go1.onclick = function () {
+                if (sel.value) {
+                    var p = sel.value.split("/"), m = +p[0], y = +p[1];
+                    var last = new Date(Date.UTC(y - 543, m, 0)).getUTCDate();
+                    loadCloudHist("01/" + p[0] + "/" + y, last + "/" + p[0] + "/" + y);
+                } else {
+                    loadCloudHist(inputDateBE(fromIn.value), inputDateBE(toIn.value));
+                }
+            };
+            card.appendChild(el("div", { cls: "hc-row" }, [sel]));
+            card.appendChild(el("div", { cls: "hc-row" }, [fromIn, el("span", { cls: "hc-status", css: "margin:0", txt: "ถึง" }), toIn]));
+            card.appendChild(el("div", { cls: "hc-row" }, [go1]));
+            card.appendChild(el("div", { cls: "hc-status", id: "hcStatus" }));
+            box.appendChild(card);
+        }
         function renderHist() {
+            renderCloudHistCard();
             var weekBox = $("histWeekCard"); if (weekBox) clr(weekBox);
             var barCard = $("histBarCard"); if (barCard) clr(barCard);
             var box = $("histContent"); if (!box) return; clr(box);
             if (!currentBranch) { box.appendChild(el("div", { cls: "empty-msg", txt: "เลือกสาขาก่อน" })); return; }
-            var prefix = "puff7_" + safeBranch(currentBranch) + "_";
-            var keys = [];
-            for (var i = 0; i < localStorage.length; i++) { var k = localStorage.key(i); if (k && k.startsWith(prefix)) keys.push(k); }
-            if (!keys.length) { box.appendChild(el("div", { cls: "empty-msg", txt: "ยังไม่มีข้อมูลย้อนหลัง" })); return; }
-            keys.sort().reverse();
-            // 7-day hero
+            var cloud = cloudHistOpen(), days = histDays();
+            if (!days.length) { box.appendChild(el("div", { cls: "empty-msg", txt: cloud ? "ไม่มีข้อมูลบนคลาวด์ในช่วงนี้" : "ยังไม่มีข้อมูลย้อนหลัง" })); return; }
+            // hero: last 7 days on the device · the whole loaded range for the cloud set
             if (weekBox) {
                 var total7 = 0, pieces7 = 0, days7 = 0;
-                keys.slice(0, 7).forEach(function (k) { try { var d = JSON.parse(localStorage.getItem(k)); if (d && d.sales) { d.sales.forEach(function (s) { total7 += s.totalAmount; pieces7 += s.totalPieces; }); days7++; } } catch (e) { } });
+                (cloud ? days : days.slice(0, 7)).forEach(function (x) { var d = x.state; if (d && d.sales) { d.sales.forEach(function (s) { total7 += s.totalAmount; pieces7 += s.totalPieces; }); days7++; } });
                 var wc = el("div", { cls: "week-hero" });
-                wc.appendChild(el("div", { cls: "wh-label", txt: "7 วันที่ผ่านมา · Past week" }));
+                wc.appendChild(el("div", { cls: "wh-label", txt: cloud ? "☁ " + _cloudHist.from + " – " + _cloudHist.to : "7 วันที่ผ่านมา · Past week" }));
                 wc.appendChild(el("div", { cls: "wh-amount", txt: "฿" + total7.toLocaleString() }));
                 wc.appendChild(el("div", { cls: "wh-detail", txt: pieces7 + " ชิ้น · เฉลี่ย ฿" + (days7 ? Math.round(total7 / days7).toLocaleString() : 0) + "/วัน" }));
-                wc.appendChild(el("div", { cls: "wh-icon", txt: "📊" }));
+                wc.appendChild(el("div", { cls: "wh-icon", txt: cloud ? "☁️" : "📊" }));
                 weekBox.appendChild(wc);
             }
-            // 7-day bar chart
+            // 7-day bar chart (newest 7 days of the shown set)
             if (barCard) {
                 barCard.appendChild(el("div", { cls: "cc-title", css: "font-family:var(--f);font-size:13px;font-weight:800;margin-bottom:10px", txt: "ยอดต่อวัน" }));
                 var vals7 = []; var DNAMES = ["อา", "จ", "อ", "พ", "พฤ", "ศ", "ส"];
-                keys.slice(0, 7).reverse().forEach(function (k) {
+                days.slice(0, 7).reverse().forEach(function (x) {
                     try {
-                        var d = JSON.parse(localStorage.getItem(k)); var v = d && d.sales ? d.sales.reduce(function (a, s) { return a + s.totalAmount; }, 0) : 0;
-                        var dateStr = k.replace(prefix, ""); var parts = dateStr.split("/");
+                        var d = x.state; var v = d && d.sales ? d.sales.reduce(function (a, s) { return a + s.totalAmount; }, 0) : 0;
+                        var dateStr = x.date; var parts = dateStr.split("/");
                         var dd = new Date(parseInt(parts[2]) - 543, parseInt(parts[1]) - 1, parseInt(parts[0]));
                         vals7.push({ v: v, d: DNAMES[dd.getDay()] || parts[0] });
                     } catch (e) { }
@@ -6859,10 +6981,8 @@
                 }
             }
             // Day cards
-            keys.forEach(function (k) {
-                var dateStr = k.replace(prefix, ""); var data = null;
-                try { data = JSON.parse(localStorage.getItem(k)); } catch (e) { }
-                if (!data) return;
+            days.forEach(function (x) {
+                var dateStr = x.date, data = x.state;
                 var totA = data.sales ? data.sales.reduce(function (a, s) { return a + s.totalAmount; }, 0) : 0;
                 var totP = data.sales ? data.sales.reduce(function (a, s) { return a + s.totalPieces; }, 0) : 0;
                 var ordCnt = data.sales ? data.sales.length : 0;

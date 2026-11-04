@@ -7,6 +7,9 @@
 // b3: HQ link → HQ mode (dashboard, no branch) · tap a card = branch read-only with the HQ token on the Owner script ·
 //     no write leaves the device (sale / fry / gift / delivery / close / email / state) · queue kept · back to HQ ·
 //     session expiry · HQ logout · device toggle gone.
+// b4: HQ branch view dims ขาย / ทอด · HQ card fry row.
+// b5: ☁ cloud history in ประวัติ (state_range) · one day source · memory only · cleared on back to HQ / branch change ·
+//     HQ = Owner + HQ token, branch owner = own script + own token · device days sorted by date, not key text.
 const path = require('path'), fs = require('fs'), http = require('http');
 const { chromium } = require('playwright');
 
@@ -23,6 +26,7 @@ const srv = http.createServer((req, res) => {
 // Stub server: answers per request type; `auth` can be overridden per test.
 const calls = [];
 let hqStates = [], latest = {};   // b3: Owner state_list rows + state_latest answers per branch
+let rangeAnswer = q => ({ ok: true, branch: q.branch, from: q.from, to: q.to, bad: 0, states: [] }), rangeDelay = 0;   // b5: state_range
 let authAnswer = () => ({ ok: true, role: 'staff', token: 'TOK-STAFF', type: 'company', label: 'สระบุรี (สาขาหลัก)' });
 function stub(route) {
   const req = route.request(), url = req.url();
@@ -30,13 +34,16 @@ function stub(route) {
   let body = {};
   try { body = JSON.parse(req.postData() || '{}'); } catch (e) { }
   const q = Object.fromEntries(new URL(url).searchParams);
-  calls.push({ which, method: req.method(), type: body.type || q.type, branch: body.branch || q.branch, kind: body.kind, t: q.t, token: body.token });
+  calls.push({ which, method: req.method(), type: body.type || q.type, branch: body.branch || q.branch, kind: body.kind, t: q.t, token: body.token, from: q.from, to: q.to });
   let ans = { ok: true };
   if (body.type === 'branch_auth') ans = authAnswer(body, which);
   else if (body.type === 'hq_auth') ans = body.pin === '8642' ? { ok: true, token: 'HQ-TOK' } : { ok: false, error: 'bad_pin' };
   else if (q.type === 'state_list') ans = { ok: true, states: hqStates };
   else if (q.type === 'state_latest') ans = { ok: true, state: latest[q.branch] || null, date: latest[q.branch] ? latest[q.branch].date : undefined };
-  route.fulfill({ status: 200, contentType: 'application/json', headers: { 'Access-Control-Allow-Origin': '*' }, body: JSON.stringify(ans) });
+  else if (q.type === 'state_range') ans = rangeAnswer(q, which);
+  const send = () => route.fulfill({ status: 200, contentType: 'application/json', headers: { 'Access-Control-Allow-Origin': '*' }, body: JSON.stringify(ans) });
+  if (q.type === 'state_range' && rangeDelay) { setTimeout(send, rangeDelay); return; }
+  send();
 }
 
 (async () => {
@@ -356,12 +363,106 @@ function stub(route) {
     r30.exp && r30.corr && r30.gift && r30.hist && r30.settings === 0 && r30.can === 'hist:true,export:true,price:false,stockCorrect:false,giftCatalog:false' &&
     r30.giftToast.indexOf('HQ ดูอย่างเดียว') >= 0, JSON.stringify(r30));
 
+  // ═══ b5: ☁ cloud history (D-b3-3) ═══
+  const ls = () => p.evaluate(() => { var o = {}; for (var i = 0; i < localStorage.length; i++) { var k = localStorage.key(i); o[k] = localStorage.getItem(k); } return JSON.stringify(Object.keys(o).sort().map(function (k) { return [k, o[k]]; })); });
+  const hist = () => p.evaluate(() => ({
+    card: !!document.querySelector('#histCloudCard .card'), on: !!document.querySelector('#histCloudCard .hc-on'),
+    months: document.querySelectorAll('#hcMonth option').length, dates: document.querySelectorAll('#hcFrom, #hcTo').length,
+    status: (document.getElementById('hcStatus') || document.querySelector('#histCloudCard .hc-status') || {}).textContent || '',
+    hero: (document.querySelector('#histWeekCard .wh-label') || {}).textContent || '', amt: (document.querySelector('#histWeekCard .wh-amount') || {}).textContent || '',
+    days: [].map.call(document.querySelectorAll('#histContent .day-date'), function (x) { return x.textContent; }).join(','),
+    bars: document.querySelectorAll('#histBarCard .hbc-col').length, open: cloudHistOpen(), close: !!document.getElementById('hcClose')
+  }));
+  const st5 = (n) => ({ sales: [{ ts: 'x', totalAmount: n, totalPieces: 1, items: [{ name: 'ORI', pieces: 1 }] }] });
+  // newest last on purpose (client must sort), a month boundary inside, BE dates as the server sends them
+  const range5 = [{ date: '30/10/2569', state: st5(300), updated_at: 'a' }, { date: '01/11/2569', state: st5(100), updated_at: 'b' }, { date: '31/10/2569', state: st5(200), updated_at: 'c' }];
+
+  // B43 HQ drill-down → ประวัติ shows the card; month → state_range on Owner with the HQ token, whole month
+  await p.evaluate(() => go('hist')); await p.waitForTimeout(200);
+  const r43a = await hist();
+  // a month that does NOT have 31 days (a fixed "31" for the last day must fail) — there is always one among 12
+  const mon43 = await p.evaluate(() => [].map.call(document.querySelectorAll('#hcMonth option'), function (o) { return o.value; }).filter(function (v) {
+    if (!v) return false; var q = v.split('/'); return new Date(Date.UTC(+q[1] - 543, +q[0], 0)).getUTCDate() !== 31; })[0]);
+  const ls43 = await ls();
+  rangeAnswer = q => ({ ok: true, branch: q.branch, from: q.from, to: q.to, bad: 1, states: range5 });
+  calls.length = 0;
+  await p.selectOption('#hcMonth', mon43); await p.click('#hcLoad'); await p.waitForTimeout(500);
+  const rq43 = calls.filter(c => c.type === 'state_range');
+  const mm43 = mon43.split('/'), last43 = new Date(Date.UTC(+mm43[1] - 543, +mm43[0], 0)).getUTCDate();
+  const r43 = await hist();
+  ok('B43 HQ ประวัติ: ☁ card (12 months + from/to) · month → ONE state_range on Owner with the HQ token, 01 → last day of that month',
+    r43a.card && !r43a.on && r43a.months === 13 && r43a.dates === 2 && rq43.length === 1 && rq43[0].which === 'owner' && rq43[0].t === 'HQ-TOK' &&
+    rq43[0].branch === 'SBR-01' && rq43[0].from === '01/' + mon43 && rq43[0].to === last43 + '/' + mon43, JSON.stringify([r43a, rq43]));
+  // B44 the cloud set runs through the same history view: hero = whole range, newest first by date, bars, export
+  const exp44 = await p.evaluate(() => {
+    var orig = window.exportFromState, got = null;
+    window.exportFromState = function (d, ds) { got = ds + '|' + d.sales[0].totalAmount; };
+    try { document.querySelector('#histContent .day-export').click(); } finally { window.exportFromState = orig; }
+    return got;
+  });
+  ok('B44 cloud set shown: card marked, hero "☁ from – to" = ฿600 over 3 days, days newest first across the month edge, 3 bars, export gets the cloud day, "1 day unreadable" told',
+    r43.on && r43.close && r43.open && r43.hero === '☁ 01/' + mon43 + ' – ' + last43 + '/' + mon43 && r43.amt === '฿600' &&
+    r43.days === '01/11/2569,31/10/2569,30/10/2569' && r43.bars === 3 && exp44 === '01/11/2569|100' && r43.status.indexOf('อ่านไม่ได้ 1 วัน') > 0, JSON.stringify([r43, exp44]));
+  ok('B45 memory only: localStorage byte-identical after loading the cloud set', (await ls()) === ls43);
+  // B46 ปิด → back to this device's days
+  await p.click('#hcClose'); await p.waitForTimeout(200);
+  const r46 = await hist();
+  ok('B46 ปิด → card back to pickers, device days again (hero "7 วันที่ผ่านมา"), cloud set gone', !r46.open && !r46.on && r46.months === 13 && r46.hero.indexOf('7 วัน') === 0 && r46.days.indexOf('30/10/2569') < 0, JSON.stringify(r46));
+  // B55 a cloud set longer than 7 days: hero = the WHOLE range, bars = newest 7 only
+  rangeAnswer = q => ({ ok: true, states: ['24/10/2569', '25/10/2569', '26/10/2569', '27/10/2569', '28/10/2569', '29/10/2569', '30/10/2569', '31/10/2569', '01/11/2569'].map(function (ds, i) { return { date: ds, state: st5((i + 1) * 10) }; }) });
+  await p.evaluate(() => { document.getElementById('hcMonth').selectedIndex = 1; document.getElementById('hcLoad').click(); }); await p.waitForTimeout(400);
+  const r55 = await hist();
+  await p.click('#hcClose'); await p.waitForTimeout(100);
+  ok('B55 cloud set of 9 days: hero = all 9 days ฿450 (not the newest 7 = ฿420), 7 bars, 9 day cards', r55.open && r55.amt === '฿450' && r55.bars === 7 && r55.days.split(',').length === 9, JSON.stringify(r55));
+  // B47 client limits: no request for > 62 days, to < from, nothing picked; server errors → Thai text, nothing opened
+  calls.length = 0;
+  const r47 = await p.evaluate(async () => {
+    var o = {}, t = document.getElementById('toast');
+    function run(f, tv) { document.getElementById('hcMonth').value = ''; document.getElementById('hcFrom').value = f; document.getElementById('hcTo').value = tv; t.textContent = ''; document.getElementById('hcLoad').click(); return t.textContent; }
+    o.long = run('2026-09-01', '2026-11-02'); o.back = run('2026-11-02', '2026-11-01'); o.none = run('', '');
+    o.ok62 = run('2026-09-01', '2026-11-01');
+    return o;
+  });
+  await p.waitForTimeout(400);
+  const rq47 = calls.filter(c => c.type === 'state_range');
+  ok('B47 > 62 days / to before from / nothing picked → refused on the device (no request) · 62 days (CE picker → BE) sent',
+    r47.long.indexOf('62') > 0 && r47.back.indexOf('ไม่ก่อน') > 0 && r47.none.indexOf('เลือกเดือน') === 0 && rq47.length === 1 &&
+    rq47[0].from === '01/09/2569' && rq47[0].to === '01/11/2569', JSON.stringify([r47, rq47]));
+  await p.click('#hcClose').catch(() => { }); await p.waitForTimeout(100);
+  const err47 = [];
+  for (const a of [{ ok: false, auth: true }, { ok: false, error: 'owner_only' }, { ok: true, status: 'PUFF POS v4 running' }, { ok: false, error: 'range_too_long', max: 62 }]) {
+    rangeAnswer = () => a;
+    try {   // a broken answer handling must fail HERE, not crash a later test
+      await p.evaluate(() => { document.getElementById('hcMonth').selectedIndex = 1; document.getElementById('hcLoad').click(); }); await p.waitForTimeout(300);
+      const h = await hist(); err47.push(h.open ? 'OPENED' : h.status);
+    } catch (e) { err47.push('THREW ' + String(e.message).split('\n')[0]); }
+  }
+  ok('B48 server answers → Thai text, card stays closed: auth · owner_only · old server (no state_range) · range_too_long',
+    err47[0].indexOf('สิทธิ์หมดอายุ') >= 0 && err47[1].indexOf('เฉพาะเจ้าของร้าน') >= 0 && err47[2].indexOf('ยังไม่รองรับ') >= 0 && err47[3].indexOf('62') >= 0, JSON.stringify(err47));
+  // B49 a late answer is dropped once the branch changed (back to HQ while loading)
+  rangeAnswer = q => ({ ok: true, states: range5 }); rangeDelay = 500;
+  await p.evaluate(() => { document.getElementById('hcMonth').selectedIndex = 1; document.getElementById('hcLoad').click(); hqBackToDashboard(); });
+  await p.waitForTimeout(800); rangeDelay = 0;
+  const r49 = await p.evaluate(() => ({ c: _cloudHist, br: currentBranch }));
+  ok('B49 answer arriving after "← กลับ HQ" is dropped (no cloud set kept)', r49.c === null && r49.br === '', JSON.stringify(r49));
+  // B50 back to HQ clears a loaded set; reopening the branch shows the device days
+  await p.click('#page-hq [data-hqbranch="SBR-01"]'); await p.waitForTimeout(600);
+  await p.evaluate(() => go('hist')); await p.evaluate(() => { document.getElementById('hcMonth').selectedIndex = 1; document.getElementById('hcLoad').click(); }); await p.waitForTimeout(400);
+  const r50a = await hist();
+
   // B31 "← กลับ HQ" → dashboard again, branch closed, branch tabs hidden, branch pages unreachable
   await p.click('#hqBackBtn'); await p.waitForTimeout(600);
   const r31 = await view();
   const go31 = await p.evaluate(() => { go('home'); go('sell'); return currentTab; });
   ok('B31 "← กลับ HQ" → dashboard: no branch, HQ tab only, cards again, back button hidden; go(home) / go(sell) ignored',
     r31.br === '' && r31.tab === 'hq' && r31.tabs === 'hq' && !r31.back && r31.cards.split(',').length === 3 && go31 === 'hq', JSON.stringify([r31, go31]));
+  const r50b = await p.evaluate(() => _cloudHist);
+  await p.click('#page-hq [data-hqbranch="SBR-01"]'); await p.waitForTimeout(600);
+  await p.evaluate(() => go('hist'));
+  const r50c = await hist();
+  await p.click('#hqBackBtn'); await p.waitForTimeout(400);
+  ok('B50 "← กลับ HQ" clears a loaded cloud set; the same branch reopened shows pickers + device days, not the old set',
+    r50a.open && r50b === null && !r50c.open && r50c.months === 13 && r50c.days.indexOf('30/10/2569') < 0, JSON.stringify([r50a.open, r50b, r50c]));
 
   // B39 event card: the header name can only come from the dashboard label (no branch info on this device, not a company)
   await p.click('#page-hq [data-hqbranch="E-691102-K7Q"]'); await p.waitForTimeout(600);
@@ -421,6 +522,55 @@ function stub(route) {
   await p.evaluate(() => go('home'));
   const g35 = await p.evaluate(() => { go('hq'); return currentTab + ' | ' + document.getElementById('toast').textContent; });
   ok('B36 outside HQ mode the HQ tab is unreachable', g35.indexOf('hq') !== 0 && g35.indexOf('สำหรับ HQ') > 0, g35);
+
+  // B51 branch owner (not HQ): same card, same call — own script + own branch token; company → Owner, franchise → Franchise
+  rangeAnswer = q => ({ ok: true, states: [{ date: '02/11/2569', state: st5(70) }] });
+  calls.length = 0;
+  const r51 = await p.evaluate(() => {
+    setToken('SBR-01', 'TOK-OWN', 'owner'); go('hist');
+    document.getElementById('hcMonth').selectedIndex = 1; document.getElementById('hcLoad').click();
+    setBranchInfo('BK-F01', 'franchise', 'ร้าน BK'); setToken('BK-F01', 'TOK-FR', 'owner');
+    return 1;
+  });
+  await p.waitForTimeout(400);
+  const own51 = await hist();
+  const mid51 = await p.evaluate(() => { setBranch('BK-F01'); return _cloudHist; });
+  await p.evaluate(() => { go('hist'); document.getElementById('hcMonth').selectedIndex = 1; document.getElementById('hcLoad').click(); });
+  await p.waitForTimeout(400);
+  const rq51 = calls.filter(c => c.type === 'state_range').map(c => c.which + ':' + c.branch + ':' + c.t);
+  const fr51 = await hist();
+  ok('B51 branch owner: SBR-01 → Owner + TOK-OWN, franchise BK-F01 → Franchise + TOK-FR (never the HQ token); set shown, and switching branch dropped the SBR-01 set first',
+    rq51.join(',') === 'owner:SBR-01:TOK-OWN,franchise:BK-F01:TOK-FR' && own51.open && mid51 === null && fr51.open && fr51.days === '02/11/2569' && r51 === 1, JSON.stringify([rq51, own51.open, mid51, fr51]));
+  // B52 device days sorted by calendar date (key text sort put 31/10 before 04/11 → wrong "7 วันที่ผ่านมา")
+  const r52 = await p.evaluate(() => {
+    clearCloudHist(); setBranch('SBR-01');
+    var pre = 'puff7_' + safeBranch('SBR-01') + '_';
+    for (var i = localStorage.length - 1; i >= 0; i--) { var k = localStorage.key(i); if (k && k.indexOf(pre) === 0) localStorage.removeItem(k); }
+    ['27/10/2569', '28/10/2569', '29/10/2569', '30/10/2569', '31/10/2569', '01/11/2569', '02/11/2569', '03/11/2569', '04/11/2569'].forEach(function (ds, i) {
+      localStorage.setItem(pre + ds, JSON.stringify({ date: ds, sales: [{ totalAmount: (i + 1) * 10, totalPieces: 1, items: [] }] }));
+    });
+    go('hist');
+    return { amt: document.querySelector('#histWeekCard .wh-amount').textContent, first: document.querySelector('#histContent .day-date').textContent,
+      days: [].map.call(document.querySelectorAll('#histContent .day-date'), function (x) { return x.textContent; }).slice(0, 3).join(',') };
+  });
+  ok('B52 device history: newest by date first (04/11 → 03/11 …), hero = newest 7 days = ฿420 (not the key-text order)', r52.amt === '฿420' && r52.days === '04/11/2569,03/11/2569,02/11/2569', JSON.stringify(r52));
+  // B53 logout clears a loaded set
+  await p.evaluate(() => { document.getElementById('hcMonth').selectedIndex = 1; document.getElementById('hcLoad').click(); }); await p.waitForTimeout(400);
+  const r53 = await p.evaluate(() => { var before = cloudHistOpen(); doLogout(); return { before: before, after: _cloudHist }; });
+  ok('B53 logout clears the cloud set', r53.before && r53.after === null, JSON.stringify(r53));
+  // B54 contracts (no caller today can reach these states — pinned so a later change cannot break them silently):
+  //     a set loaded for another branch is never shown · a staff role never gets the card
+  const r54 = await p.evaluate(() => {
+    var keepB = currentBranch, keepS = S, o = {};
+    currentBranch = 'SBR-01';
+    _cloudHist = { branch: 'TBK-02', from: '01/11/2569', to: '02/11/2569', days: [{ date: '01/11/2569', state: { sales: [{ totalAmount: 999, totalPieces: 1, items: [] }] } }], bad: 0 };
+    o.open = cloudHistOpen(); o.days = histDays().some(function (x) { return x.state.sales && x.state.sales[0].totalAmount === 999; });
+    _cloudHist = null;
+    setToken('SBR-01', 'TOK-ST', 'staff'); renderCloudHistCard(); o.staffCard = !!document.querySelector('#histCloudCard .card');
+    currentBranch = keepB; S = keepS;
+    return o;
+  });
+  ok('B54 contract: another branch\'s cloud set is not shown · staff gets no ☁ card', !r54.open && !r54.days && !r54.staffCard, JSON.stringify(r54));
 
   // B37 reload while in HQ → opens on the login screen (never in HQ); the HQ link asks the PIN again (D-b3-1)
   await p.evaluate(() => doLogout());
