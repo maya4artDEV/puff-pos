@@ -295,6 +295,14 @@
         #loginFreeInput { text-transform: uppercase }
         /* 0018-b3: HQ link on the login screen + tappable HQ dashboard cards */
         .login-hq { display: block; margin: 14px auto 0; border: none; background: transparent; font-family: var(--f); font-size: 12px; color: var(--muted); text-decoration: underline; cursor: pointer; padding: 8px 12px }
+        /* 0018-c2: activation + PIN help links on the login screen · PIN help table */
+        .login-link { display: block; margin: 8px 0 0; border: none; background: transparent; font-family: var(--ft); font-size: 12px; font-weight: 700; color: var(--blue); text-decoration: underline; cursor: pointer; padding: 6px 0 }
+        .login-help { margin: 10px auto 0; color: var(--muted); font-weight: 400 }
+        #actModal, #pinHelpModal { z-index: 1000 }   /* over the login screen (1000, earlier in the DOM), under the toast (1001) */
+        .pin-help { width: 100%; border-collapse: collapse; font-family: var(--ft); font-size: 12px; line-height: 1.5 }
+        .pin-help th { text-align: left; color: var(--muted); font-weight: 700; padding: 6px 4px; border-bottom: 1px solid var(--border) }
+        .pin-help td { vertical-align: top; padding: 8px 4px; border-bottom: 1px solid var(--border) }
+        .pin-help td:first-child { font-weight: 700; color: var(--ink) }
         .hq-card { cursor: pointer }
         .hq-card:active { transform: scale(.99) }
         /* 0018-b4: HQ viewing a branch — ขาย / ทอด dimmed, not tappable · fry row on the HQ card */
@@ -4057,6 +4065,7 @@
                 <select class="lf-input" id="loginBranchSel" onchange="onLoginSelectChange()" required>
                     <option value="">— เลือกสาขา —</option>
                 </select>
+                <button type="button" class="login-link" data-login="activate">🔓 เปิดใช้งานสาขาครั้งแรก</button>
             </div>
             <div class="lf-group lt-pane" data-ltpane="franchise">
                 <label class="lf-label" for="loginFreeInput">รหัสสาขาแฟรนไชส์ *</label>
@@ -4065,6 +4074,7 @@
                 <div class="lf-note" id="loginFreeNote">รูปแบบรหัส: ตัวอักษร 2–3 ตัว ขีด ตัวอักษร/ตัวเลข 2–3 ตัว
                     เช่น BK-F01 — ไม่ทราบรหัส ถามเจ้าของร้าน</div>
                 <div class="lf-chips" id="loginRecentChips"></div>
+                <button type="button" class="login-link" data-login="activate">🔓 เปิดใช้งานสาขาครั้งแรก</button>
             </div>
             <div class="lf-group lt-pane" data-ltpane="event">
                 <div class="lf-note show">หน้าเลือกงาน Event เปิดใช้ในเวอร์ชันถัดไป</div>
@@ -4074,6 +4084,7 @@
                 <input class="lf-input" id="loginPinInput" type="password" inputmode="numeric" placeholder="••••" autocomplete="off">
             </div>
             <button class="login-btn" id="loginBtn" onclick="doLogin()" disabled>เริ่มใช้งาน</button>
+            <button type="button" class="login-link login-help" data-login="help">❔ รหัสมาจากไหน?</button>
             <div class="login-footer">ระบบจำข้อมูลในเครื่องนี้</div>
             <div class="login-footer build-tap" id="loginBuild"></div>
             <button type="button" class="login-hq" id="loginHQ" onclick="openHQ()">HQ · ดูยอดทุกสาขา</button>
@@ -5114,7 +5125,9 @@
                 bad_pin: "รหัสไม่ถูกต้อง",
                 need_pin: "สาขานี้ต้องใส่รหัส",
                 locked_out: "ใส่รหัสผิดหลายครั้ง — รอ 10 นาที",
-                ended: "งานนี้ปิดแล้ว บันทึกเพิ่มไม่ได้"
+                ended: "งานนี้ปิดแล้ว บันทึกเพิ่มไม่ได้",
+                code_bad: "รหัสเปิดใช้งานไม่ถูกต้อง",
+                code_expired: "รหัสเปิดใช้งานหมดอายุ — ขอรหัสใหม่จาก HQ"
             };
             return m[code] || (hadPin ? "รหัสไม่ถูกต้อง" : "สาขานี้ต้องใส่รหัส");
         }
@@ -5124,6 +5137,145 @@
             var phone = ($("loginPhone") || { value: "" }).value.trim();
             var btn = $("loginBtn");
             if (btn) btn.disabled = !(name && nick && phone && _loginBranch);
+        }
+        // ── PIN rules (0018-c2) = mirror of the server's pinRule_ (Access.gs, SPEC §4.3) for instant feedback.
+        //    The server stays the judge; test K01 compares both on every 4–6 digit PIN. ──
+        var PIN_RULE_TEXT = {
+            format: "ต้องเป็นตัวเลข 4–6 หลัก",
+            repeat: "ห้ามใช้เลขเดียวกันทั้งหมด เช่น 1111",
+            sequence: "ห้ามใช้เลขเรียงกัน เช่น 1234 หรือ 4321",
+            same: "รหัสเจ้าของกับรหัสพนักงานต้องไม่ซ้ำกัน"
+        };
+        var PIN_FIELD_TEXT = { owner: "รหัสเจ้าของ", staff: "รหัสพนักงาน" };
+        // "" = OK, else the ONE broken rule: format · repeat · sequence · same (= other). Server order.
+        function pinRuleCode(pin, other) {
+            pin = String(pin === undefined || pin === null ? "" : pin);
+            if (!/^\d{4,6}$/.test(pin)) return "format";
+            if (/^(\d)\1+$/.test(pin)) return "repeat";
+            var up = true, down = true;
+            for (var i = 1; i < pin.length; i++) {
+                var d = pin.charCodeAt(i) - pin.charCodeAt(i - 1);
+                if (d !== 1) up = false;
+                if (d !== -1) down = false;
+            }
+            if (up || down) return "sequence";
+            if (other !== undefined && other !== null && String(other) === pin) return "same";
+            return "";
+        }
+        function pinRuleError(pin, other) { var c = pinRuleCode(pin, other); return c ? PIN_RULE_TEXT[c] : ""; }
+        // branch_activate answer → Thai text (weak_pin names the field and the one broken rule).
+        function activateErrorText(d) {
+            if (d && d.error === "weak_pin") return (PIN_FIELD_TEXT[d.field] ? PIN_FIELD_TEXT[d.field] + ": " : "") + (PIN_RULE_TEXT[d.rule] || PIN_RULE_TEXT.format);
+            if (d && d.error === "same_pin") return PIN_RULE_TEXT.same;
+            return authErrorText(d && d.error, true);
+        }
+        // Login-screen links (data-login): activation sheet · PIN help sheet.
+        function onLoginLinkClick(ev) {
+            var t = ev.target && ev.target.closest ? ev.target.closest("[data-login]") : null;
+            if (!t) return;
+            if (t.getAttribute("data-login") === "activate") openActivation();
+            else if (t.getAttribute("data-login") === "help") openPinHelp();
+        }
+        function closeModalById(id) { var m = $(id); if (m && m.parentNode) m.parentNode.removeChild(m); }
+        // Bottom sheet shell shared by the c2 sheets: returns the sheet; tap outside closes it.
+        function openSheetModal(id, title) {
+            closeModalById(id);
+            var ov = el("div", { cls: "modal-overlay open", id: id });
+            var sh = el("div", { cls: "modal-sheet" });
+            sh.appendChild(el("div", { cls: "modal-handle" }));
+            sh.appendChild(el("h4", { cls: "modal-title", txt: title }));
+            ov.onclick = function (ev) { if (ev.target === ov) closeModalById(id); };
+            ov.appendChild(sh);
+            document.body.appendChild(ov);
+            return sh;
+        }
+        // ── First-time activation (SPEC §4.4): 8-digit code from HQ + new owner PIN + new staff PIN → owner on this device.
+        //    Same for company and franchise (the open tab = kind). Events never activate. ──
+        function openActivation() {
+            var b = _loginBranch, tab = _loginTab;
+            if (tab !== "company" && tab !== "franchise") return;
+            if (!b) { showToast(tab === "company" ? "เลือกสาขาก่อน" : "พิมพ์รหัสสาขาก่อน", true); return; }
+            var nameOk = ["loginName", "loginNick", "loginPhone"].every(function (id) { return (($(id) || { value: "" }).value || "").trim(); });
+            if (!nameOk) { showToast("กรอกชื่อ ชื่อเล่น และเบอร์ด้านบนก่อน", true); return; }
+            var sh = openSheetModal("actModal", "🔓 เปิดใช้งานสาขาครั้งแรก");
+            sh.appendChild(el("div", { css: "font-size:13px;font-weight:700;margin:2px 0 4px", txt: "สาขา " + b + (branchLabel(b) !== b ? " · " + branchLabel(b) : "") }));
+            sh.appendChild(el("div", { css: "font-size:12px;color:var(--muted);margin:0 0 10px", txt: "ใช้รหัส 8 หลักที่ HQ ส่งให้ แล้วตั้งรหัสใหม่ 2 ชุด — รหัสเปิดใช้งานใช้ได้ครั้งเดียว" }));
+            function field(id, label, type, max, ph) {
+                sh.appendChild(el("label", { cls: "lf-label", "for": id, txt: label }));
+                var i = el("input", { cls: "lf-input", id: id, type: type, inputmode: "numeric", maxlength: max, placeholder: ph, autocomplete: type === "password" ? "new-password" : "off", css: "margin-bottom:8px" });
+                sh.appendChild(i);
+                return i;
+            }
+            var codeI = field("actCode", "รหัสเปิดใช้งาน (8 หลัก จาก HQ)", "text", "9", "1234 5678");
+            var o1 = field("actOwner1", "ตั้งรหัสเจ้าของ (4–6 หลัก)", "password", "6", "รหัสเจ้าของ");
+            var o2 = field("actOwner2", "ยืนยันรหัสเจ้าของ", "password", "6", "พิมพ์ซ้ำ");
+            var s1 = field("actStaff1", "ตั้งรหัสพนักงาน (4–6 หลัก)", "password", "6", "รหัสพนักงาน");
+            var s2 = field("actStaff2", "ยืนยันรหัสพนักงาน", "password", "6", "พิมพ์ซ้ำ");
+            var msg = el("div", { id: "actMsg", css: "font-size:12px;color:#D26A5C;min-height:16px;margin:4px 0 6px" });
+            var ok = el("button", { cls: "abtn", id: "actOk", type: "button", txt: "เปิดใช้งาน" });
+            var no = el("button", { cls: "abtn-outline", type: "button", css: "margin-top:8px", txt: "ยกเลิก" });
+            var help = el("button", { cls: "login-link login-help", type: "button", txt: "❔ รหัสมาจากไหน?" });
+            ok.onclick = function () {
+                var code = codeI.value.replace(/[\s-]/g, ""), op = o1.value.trim(), sp = s1.value.trim();
+                var oc = pinRuleCode(op), sc = pinRuleCode(sp, op);
+                var err = !/^\d{8}$/.test(code) ? "รหัสเปิดใช้งานต้องเป็นตัวเลข 8 หลัก"
+                    : oc ? PIN_FIELD_TEXT.owner + ": " + PIN_RULE_TEXT[oc]
+                    : op !== o2.value.trim() ? "ยืนยันรหัสเจ้าของไม่ตรงกัน"
+                    : sc === "same" ? PIN_RULE_TEXT.same
+                    : sc ? PIN_FIELD_TEXT.staff + ": " + PIN_RULE_TEXT[sc]
+                    : sp !== s2.value.trim() ? "ยืนยันรหัสพนักงานไม่ตรงกัน" : "";
+                if (err) { msg.textContent = err; return; }
+                if (navigator.onLine === false) { msg.textContent = "ต้องต่อเน็ตเพื่อเปิดใช้งาน"; return; }
+                ok.disabled = true; ok.textContent = "กำลังเปิดใช้งาน...";
+                activateBranch(b, tab, code, op, sp, function (e2) {
+                    if (!e2) {
+                        closeModalById("actModal");
+                        showToast("✅ เปิดใช้งานสาขา " + b + " แล้ว — เข้าใช้เป็นเจ้าของ");
+                        doLogin();   // session + owner token are stored → straight to finishLogin
+                        return;
+                    }
+                    ok.disabled = false; ok.textContent = "เปิดใช้งาน";
+                    msg.textContent = e2;
+                });
+            };
+            no.onclick = function () { closeModalById("actModal"); };
+            help.onclick = openPinHelp;
+            sh.appendChild(msg); sh.appendChild(ok); sh.appendChild(no); sh.appendChild(help);
+            codeI.focus();
+        }
+        // branch_activate on the branch's own script. onDone(null) = activated (owner token stored), else Thai text.
+        // No automatic retry: a code works once. If the answer got lost after the server accepted it, a 2nd try says
+        // code_bad — the owner then logs in with the owner PIN just set (the network message says so).
+        function activateBranch(b, tab, code, op, sp, onDone) {
+            fetchJSON(urlForType(tab), {
+                method: "POST", mode: "cors",
+                headers: { "Content-Type": "text/plain;charset=utf-8" },
+                body: JSON.stringify({ type: "branch_activate", branch: b, code: code, owner_pin: op, staff_pin: sp, kind: tab })
+            }, 15000).then(function (d) {
+                if (!d || !d.ok) { onDone(activateErrorText(d)); return; }
+                if (d.role !== "owner" || !d.token) { onDone("ระบบสาขายังไม่รองรับการเปิดใช้งาน (รออัปเดต) — ติดต่อ HQ"); return; }   // v8 answers ok to unknown types
+                acceptLogin(b, tab, d);
+                onDone(null);
+            }).catch(function () {
+                onDone("เชื่อมต่อไม่ได้ — ลองใหม่อีกครั้ง (ถ้าขึ้นว่ารหัสเปิดใช้งานไม่ถูกต้อง แปลว่าเปิดสำเร็จแล้ว ให้เข้าด้วยรหัสเจ้าของที่เพิ่งตั้ง)");
+            });
+        }
+        // ── PIN help (SPEC §9) — staff level, reachable from the login screen and the activation sheet ──
+        var PIN_HELP_ROWS = [
+            ["รหัสพนักงาน", "เจ้าของร้านตั้งให้", "ถามเจ้าของร้าน"],
+            ["รหัสเจ้าของ", "เจ้าของตั้งเองตอนเปิดใช้งาน", "ติดต่อ HQ ขอรหัสเปิดใช้งานใหม่"],
+            ["รหัสเปิดใช้งาน (8 หลัก)", "HQ ส่งให้ครั้งเดียว", "ใช้ได้ 7 วัน"],
+            ["รหัส Event", "คนเปิดงานตั้ง", "ถามหัวหน้างาน"],
+            ["รหัสเปิดงานใหม่", "HQ", "ถาม HQ"]
+        ];
+        function openPinHelp() {
+            var sh = openSheetModal("pinHelpModal", "❔ รหัสมาจากไหน?");
+            var tb = el("tbody");
+            PIN_HELP_ROWS.forEach(function (r) { tb.appendChild(el("tr", null, [el("td", { txt: r[0] }), el("td", { txt: r[1] }), el("td", { txt: r[2] })])); });
+            sh.appendChild(el("table", { cls: "pin-help" }, [el("thead", null, el("tr", null, [el("th", { txt: "รหัส" }), el("th", { txt: "ใครให้" }), el("th", { txt: "ลืม/เปลี่ยน" })])), tb]));
+            var close = el("button", { cls: "abtn-outline", type: "button", css: "margin-top:14px", txt: "ปิด" });
+            close.onclick = function () { closeModalById("pinHelpModal"); };
+            sh.appendChild(close);
         }
         // ── HQ mode (0018-b3) — replaces the ✏/👁 device toggle (SPEC B7) ──
         // Login screen link "HQ" → HQ PIN (HQ tab) → dashboard of the Owner-Sheet branches → tap a card = that branch, read-only.
@@ -5477,6 +5629,14 @@
                 });
             });
         }
+        // Successful branch_auth / branch_activate → this device's session for that branch (ONE place).
+        function acceptLogin(b, tab, d) {
+            if (d.token) setToken(b, d.token, d.role);
+            if (d.role !== "staff") setAsStaff(b, false);   // c1: an owner-PIN login ends "handed to staff"
+            setBranchInfo(b, d.type || tab, d.label);       // v8 server sends no type → the tab is the type
+            setBranchAuth(b);
+            if (tab === "franchise") pushRecentBranch(b);
+        }
         function doLogin() {
             var name = ($("loginName") || { value: "" }).value.trim();
             var nick = ($("loginNick") || { value: "" }).value.trim();
@@ -5512,11 +5672,7 @@
             if (btn) btn.textContent = "กำลังตรวจสอบรหัส...";
             function onAuthOk(d) {
                 if (d && d.ok) {
-                    if (d.token) setToken(_loginBranch, d.token, d.role);
-                    if (d.role !== "staff") setAsStaff(_loginBranch, false);   // c1: an owner-PIN login ends "handed to staff"
-                    setBranchInfo(_loginBranch, d.type || _loginTab, d.label);   // v8 server sends no type → the tab is the type
-                    setBranchAuth(_loginBranch);
-                    if (_loginTab === "franchise") pushRecentBranch(_loginBranch);
+                    acceptLogin(_loginBranch, _loginTab, d);
                     finishLogin();
                 }
                 else {
@@ -7649,6 +7805,7 @@
             }
             restoreLoginForm(lastBranch);
             var ltb = $("loginTabs"); if (ltb) ltb.addEventListener("click", onLoginTabClick);
+            var lsc = $("loginScreen"); if (lsc) lsc.addEventListener("click", onLoginLinkClick);   // 0018-c2: activation + PIN help links
             renderRecentChips();
             applyHQTabVisibility();    // HQ tab only in HQ mode
             checkDeviceClock();        // L2-c: verify device clock at start (login screen included)
