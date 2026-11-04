@@ -28,3 +28,8 @@ backend/
 docs/*
 !docs/*.pdf
 claude/
+gs/
+
+# PIN guides / staff credential sheets must never reach this PUBLIC repo (overrides !docs/*.pdf above) - 2026-11-04
+docs/*PIN*
+docs/*pin*
