@@ -52,6 +52,17 @@ POS is production and Tony loses real money on regressions. These are absolute:
 - ❌ **Never regenerate the whole `index.html`** as a way to make an edit.
 - ❌ **Never claim `node --check` passed without running it.**
 
+## 4a. Shell on Tony's machine — classify every command first (Builder Codex P-31)
+
+Applies to any agent with a shell here (Antigravity, NOVA via Desktop Commander). Where this repo is stricter than the Codex defaults, this repo wins (Tony, 04/11/2569).
+
+- **R2 — just do it, short report:** read files · `git status` / `log` / `diff` · run any test suite · `node --check`.
+- **R2 with conditions — write a file into the working tree** only when ALL hold: (1) `git status` shows that file clean, (2) no `AI_LOCK.md` and no other agent mid-task on it (P-20), (3) a backup copy is in `%TEMP%` first, (4) the result's MD5 = NOVA's reference (P-34). Overwriting uncommitted work = R0.
+- **Ask Tony first — `git commit`:** a commit is the per-sub-task review gate, and undoing it needs `git reset`.
+- **R0 — stop, ask every time:** `git push` (= GitHub Pages production deploy; follows rollout order R0–R6) · `rm` · `git reset` · `npm install` (dev deps too — every dependency is solo maintenance, P-36) · anything outside this repo folder · Apps Script or Script Properties.
+- **Never:** print or echo `HUB_TOKEN` or any token · commit a secret (§4, §8).
+- A proxy signal (MD5 mismatch, grep count, exit code) → open the real value before concluding (`MEMORY.md` 2026-09-20).
+
 ## 5. Cross-system awareness (do not blend schemas)
 
 Three systems exist in the PuffStick universe. **This repo is POS only.**
