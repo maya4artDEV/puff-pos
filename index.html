@@ -298,7 +298,15 @@
         /* 0018-c2: activation + PIN help links on the login screen · PIN help table */
         .login-link { display: block; margin: 8px 0 0; border: none; background: transparent; font-family: var(--ft); font-size: 12px; font-weight: 700; color: var(--blue); text-decoration: underline; cursor: pointer; padding: 6px 0 }
         .login-help { margin: 10px auto 0; color: var(--muted); font-weight: 400 }
-        #actModal, #pinHelpModal { z-index: 1000 }   /* over the login screen (1000, earlier in the DOM), under the toast (1001) */
+        #actModal, #pinHelpModal, #evConfirmModal { z-index: 1000 }   /* over the login screen (1000, earlier in the DOM), under the toast (1001) */
+        /* 0018-d1: event list on the login screen (tap = pick, PIN in the shared field) */
+        .ev-list { display: flex; flex-direction: column; gap: 6px }
+        .ev-item { display: block; width: 100%; text-align: left; background: var(--card); border: 1.5px solid var(--border); border-radius: 14px; padding: 10px 14px; font-family: var(--ft); cursor: pointer }
+        .ev-item.on { border-color: var(--mustard); box-shadow: 0 0 0 2px rgba(242, 179, 61, .25) }
+        .ev-item:disabled { opacity: .45; cursor: default }
+        .ev-name { display: block; font-size: 14px; font-weight: 700; color: var(--ink) }
+        .ev-sub { display: block; font-size: 11px; color: var(--muted); margin-top: 2px }
+        .ev-item.late .ev-sub { color: #C84238; font-weight: 700 }
         .pin-help { width: 100%; border-collapse: collapse; font-family: var(--ft); font-size: 12px; line-height: 1.5 }
         .pin-help th { text-align: left; color: var(--muted); font-weight: 700; padding: 6px 4px; border-bottom: 1px solid var(--border) }
         .pin-help td { vertical-align: top; padding: 8px 4px; border-bottom: 1px solid var(--border) }
@@ -4077,7 +4085,8 @@
                 <button type="button" class="login-link" data-login="activate">🔓 เปิดใช้งานสาขาครั้งแรก</button>
             </div>
             <div class="lf-group lt-pane" data-ltpane="event">
-                <div class="lf-note show">หน้าเลือกงาน Event เปิดใช้ในเวอร์ชันถัดไป</div>
+                <span class="lf-label">งาน Event * <span style="opacity:.5">(แตะชื่องาน แล้วใส่รหัสงาน)</span></span>
+                <div class="ev-list" id="loginEventList"></div>
             </div>
             <div class="lf-group">
                 <label class="lf-label" for="loginPinInput">รหัสสาขา <span style="opacity:.5">(รหัสเจ้าของ หรือ รหัสพนักงาน)</span></label>
@@ -4550,10 +4559,11 @@
             try { return JSON.parse(localStorage.getItem("puff10_branchInfo") || "{}") || {}; } catch (e) { return {}; }
         }
         function getBranchInfo(b) { var m = getBranchInfoMap(); return Object.prototype.hasOwnProperty.call(m, b) ? m[b] : null; }
-        function setBranchInfo(b, type, label) {
+        function setBranchInfo(b, type, label, start, end) {   // start/end: events only (0018-d1 — back-date bound, E5)
             if (!b || !type) return;
             var m = getBranchInfoMap();
             m[b] = { type: String(type), label: String(label || b) };
+            if (start) { m[b].start = String(start); m[b].end = String(end || ""); }
             try { localStorage.setItem("puff10_branchInfo", JSON.stringify(m)); } catch (e) { showToast("⚠️ พื้นที่เครื่องเต็ม — บันทึกข้อมูลสาขาไม่ได้", true); }
         }
         function urlForType(type) { return type === "franchise" ? FRANCHISE_URL : OWNER_URL; }   // company + event → Owner
@@ -4799,9 +4809,11 @@
                 try { var cst = JSON.parse(localStorage.getItem(k)); if (cst && cst.is_closed === true) closedNum = n; } catch (e) { }
             }
             var out = [], blockedBy = "";
+            var info = getBranchInfo(currentBranch);
+            var startNum = (info && info.type === "event") ? dateSortKey(info.start) : 0;   // 0018-d1: never before an event's start (SPEC §6.7)
             for (var j = BACKDATE_MAX_DAYS; j >= 1; j--) {
                 var ds = shiftDateStr(today, -j);
-                if (dateSortKey(ds) <= closedNum) continue;
+                if (dateSortKey(ds) <= closedNum || dateSortKey(ds) < startNum) continue;
                 var st = readDayState(ds);
                 if (st && st.is_closed === true) continue;
                 var act = hasDayActivity(st);
@@ -5089,9 +5101,91 @@
             });
             [].forEach.call(document.querySelectorAll(".lt-pane"), function (p) { p.classList.toggle("active", p.getAttribute("data-ltpane") === tab); });
             try { localStorage.setItem("puff10_loginTab", tab); } catch (e) { }
+            var pl = document.querySelector('label[for="loginPinInput"]');
+            if (pl) { clr(pl); pl.appendChild(document.createTextNode(tab === "event" ? "รหัสงาน " : "รหัสสาขา ")); pl.appendChild(el("span", { css: "opacity:.5", txt: tab === "event" ? "(ถามหัวหน้างาน)" : "(รหัสเจ้าของ หรือ รหัสพนักงาน)" })); }
             if (tab === "company") onLoginSelectChange();
             else if (tab === "franchise") onLoginFreeInput();
-            else { _loginBranch = ""; updLoginBtn(); }   // event tab: 0018-d
+            else { _loginBranch = resumableEvent(); loadEventList(); }   // D-ev-4: this device's last event is pre-picked
+        }
+        // ── Event tab (0018-d1, SPEC §6.1 · D-ev-1 / D-ev-3 / D-ev-4) ──
+        // GET event_list (Owner, no token) = open events: running · future (grey, writes before start are refused) · past end
+        // within the 3-day grace (red). Pick = _loginBranch; the PIN goes in the shared field; branch_auth kind "event".
+        var _eventList = null, _eventListState = "", _eventListReq = 0;
+        function evDayText(ds) {
+            var p = String(ds || "").split("/");
+            return p.length === 3 && HC_MONTHS[+p[1] - 1] ? (+p[0]) + " " + HC_MONTHS[+p[1] - 1] : String(ds || "");
+        }
+        function eventPhase(ev) {   // "future" · "open" · "late" (past end, still in grace) — device clock is checked (L2-c)
+            var t = dateSortKey(todayISO());
+            if (dateSortKey(ev.start) > t) return "future";
+            return dateSortKey(ev.end) && t > dateSortKey(ev.end) ? "late" : "open";
+        }
+        // The event this device is still logged in to (session + token, not past end + grace) — pickable even while the list cannot load.
+        var EVENT_GRACE_DAYS = 3;   // = gs/Access.gs EVENT_GRACE_DAYS
+        function resumableEvent() {
+            var a = getBranchAuth(), info = a ? getBranchInfo(a.branch) : null;
+            if (!info || info.type !== "event" || !getTokenFor(a.branch)) return "";
+            if (info.end && dateSortKey(todayISO()) > dateSortKey(shiftDateStr(info.end, EVENT_GRACE_DAYS))) return "";
+            return a.branch;
+        }
+        function loadEventList() {
+            var req = ++_eventListReq;
+            _eventListState = "loading"; renderEventList();
+            fetchJSON(OWNER_URL + "?type=event_list", { method: "GET" }, 10000).then(function (d) {
+                if (req !== _eventListReq) return;
+                var ok = !!(d && d.ok && Object.prototype.toString.call(d.events) === "[object Array]");   // v8 Owner: no event_list
+                _eventList = ok ? d.events.filter(function (e) { return e && e.key; }) : null;
+                _eventListState = ok ? "ok" : "error"; renderEventList();
+            }).catch(function () { if (req === _eventListReq) { _eventList = null; _eventListState = "error"; renderEventList(); } });
+        }
+        function renderEventList() {
+            var box = $("loginEventList"); if (!box) return; clr(box);
+            var own = resumableEvent(), items = [];
+            if (_eventListState === "ok") items = _eventList.slice();
+            else if (own) { var oi = getBranchInfo(own); items = [{ key: own, label: oi.label, start: oi.start, end: oi.end, own: true }]; }
+            var pickable = items.filter(function (e) { return eventPhase(e) !== "future"; }).map(function (e) { return e.key; });
+            if (_loginTab === "event" && pickable.indexOf(_loginBranch) < 0) _loginBranch = "";   // ended / gone from the list
+            items.forEach(function (e) {
+                var ph = eventPhase(e);
+                var sub = ph === "future" ? "เริ่ม " + evDayText(e.start) + " — ยังเข้าไม่ได้"
+                    : ph === "late" ? "เลยกำหนด (" + evDayText(e.end) + ") — ปิดวันเพื่อปิดงาน"
+                    : evDayText(e.start) + " – " + evDayText(e.end) + (e.own ? " · เครื่องนี้เข้าอยู่" : "");
+                var b = el("button", { type: "button", cls: "ev-item" + (ph === "late" ? " late" : "") + (e.key === _loginBranch ? " on" : ""), "data-ev": e.key },
+                    [el("span", { cls: "ev-name", txt: e.label || e.key }), el("span", { cls: "ev-sub", txt: sub })]);
+                if (ph === "future") b.disabled = true;
+                box.appendChild(b);
+            });
+            var note = _eventListState === "loading" ? "กำลังโหลดรายการงาน..."
+                : _eventListState === "error" ? "โหลดรายการงานไม่ได้ — ตรวจเน็ต แล้วแตะเพื่อลองใหม่"
+                : !items.length ? "ยังไม่มีงานที่เปิดอยู่" : "";
+            if (note) {
+                var na = { cls: "lf-note show", txt: note };
+                if (_eventListState === "error") na["data-evreload"] = "1";   // el() would write a null attribute as "null"
+                box.appendChild(el("div", na));
+            }
+            box.onclick = onEventListClick;
+            updLoginBtn();
+        }
+        function onEventListClick(ev) {
+            var t = ev.target && ev.target.closest ? ev.target.closest("[data-ev],[data-evreload]") : null;
+            if (!t || t.disabled) return;
+            if (t.getAttribute("data-evreload")) { loadEventList(); return; }
+            _loginBranch = t.getAttribute("data-ev");
+            renderEventList();
+            var pI = $("loginPinInput"); if (pI) pI.focus();
+        }
+        // D-ev-3: after the event PIN is accepted — "is this the right event?" The token is stored only on ใช่.
+        function openEventConfirm(key, d, onYes) {
+            var ev = { key: key, label: d.label || key, start: d.start, end: d.end };
+            var sh = openSheetModal("evConfirmModal", "📅 ยืนยันงาน");
+            sh.appendChild(el("div", { css: "font-size:17px;font-weight:800;margin:2px 0 4px", txt: ev.label }));
+            sh.appendChild(el("div", { css: "font-size:12px;color:var(--muted);margin:0 0 10px", txt: evDayText(ev.start) + " – " + evDayText(ev.end) + " · " + key }));
+            if (ev.start && eventPhase(ev) === "late") sh.appendChild(el("div", { css: "font-size:12px;color:#C84238;font-weight:700;margin:0 0 10px", txt: "เลยวันสุดท้ายของงานแล้ว — ปิดวันวันนี้เพื่อปิดงาน หรือขยายวันงาน" }));
+            var yes = el("button", { cls: "abtn", id: "evConfirmYes", type: "button", txt: "ใช่ เข้างานนี้" });
+            var no = el("button", { cls: "abtn-outline", id: "evConfirmNo", type: "button", css: "margin-top:8px", txt: "ไม่ใช่ — เลือกงานใหม่" });
+            yes.onclick = function () { closeModalById("evConfirmModal"); onYes(); };
+            no.onclick = function () { closeModalById("evConfirmModal"); var pI = $("loginPinInput"); if (pI) pI.value = ""; };
+            sh.appendChild(yes); sh.appendChild(no);
         }
         function onLoginTabClick(ev) {
             var b = ev.target && ev.target.closest ? ev.target.closest(".lt-tab") : null;
@@ -5641,7 +5735,7 @@
         function acceptLogin(b, tab, d) {
             if (d.token) setToken(b, d.token, d.role);
             if (d.role !== "staff") setAsStaff(b, false);   // c1: an owner-PIN login ends "handed to staff"
-            setBranchInfo(b, d.type || tab, d.label);       // v8 server sends no type → the tab is the type
+            setBranchInfo(b, d.type || tab, d.label, d.start, d.end);   // v8 server sends no type → the tab is the type
             setBranchAuth(b);
             if (tab === "franchise") pushRecentBranch(b);
         }
@@ -5679,7 +5773,12 @@
             var pin = ($("loginPinInput") || { value: "" }).value.trim();
             if (btn) btn.textContent = "กำลังตรวจสอบรหัส...";
             function onAuthOk(d) {
-                if (d && d.ok) {
+                if (d && d.ok && _loginTab === "event") {   // D-ev-3: right event? Nothing is stored before "ใช่"
+                    if (btn) { btn.disabled = false; btn.textContent = "เริ่มใช้งาน"; }
+                    var evKey = _loginBranch;
+                    openEventConfirm(evKey, d, function () { _loginBranch = evKey; acceptLogin(evKey, "event", d); finishLogin(); });
+                }
+                else if (d && d.ok) {
                     acceptLogin(_loginBranch, _loginTab, d);
                     finishLogin();
                 }
@@ -7994,7 +8093,8 @@
                     updateSyncIcon();
                     _flushing = false;
                     if (q.length) flushSyncQueue();
-                } else if (d && d.locked) {
+                } else if (d && (d.locked || d.ended)) {   // 0018-d1: ended event / day outside it = refused for good (SPEC §6.6)
+                    if (d.ended) showToast("งานนี้ปิดแล้ว บันทึกเพิ่มไม่ได้ — ข้อมูลวันที่ " + item.date + " ยังอยู่ในเครื่อง", true);
                     var ql;
                     try { ql = JSON.parse(localStorage.getItem("puff10_syncQueue") || "[]"); } catch (e2) { ql = []; }
                     ql = ql.filter(function (qi) { return !(qi.branch === item.branch && qi.date === item.date); });
