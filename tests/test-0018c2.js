@@ -306,7 +306,8 @@ const srv = http.createServer((req, res) => {
     const added = SRC.split('\n').filter(l => !baseSet.has(l));
     const bad = added.filter(l => /\blet\s|\bconst\s|=>|`|innerHTML/.test(l));
     const elOf = s => (/function el\(tag, attrs, kids\) \{[\s\S]*?\n        \}/.exec(s) || [''])[0];
-    const setTok = (SRC.match(/setToken\(/g) || []).length, setTokBase = (baseSrc.match(/setToken\(/g) || []).length;
+    // c3 adds exactly one: replaceOwnerToken (fresh owner token after set_owner_pin; must keep puff10_asStaff → not acceptLogin). test-0018c3 guards it.
+    const setTok = (SRC.match(/setToken\(/g) || []).length, setTokBase = (baseSrc.match(/setToken\(/g) || []).length + (SRC.indexOf('function replaceOwnerToken(') >= 0 ? 1 : 0);
     ok('K18 static: ' + added.length + ' added lines without let/const/=>/`/innerHTML · el() byte-identical · setToken( calls not increased (acceptLogin is the one path)',
       added.length > 50 && bad.length === 0 && elOf(SRC) && elOf(SRC) === elOf(baseSrc) && setTok <= setTokBase, JSON.stringify([bad.slice(0, 3), setTok, setTokBase]));
 

@@ -5179,6 +5179,13 @@
         }
         function closeModalById(id) { var m = $(id); if (m && m.parentNode) m.parentNode.removeChild(m); }
         // Bottom sheet shell shared by the c2 sheets: returns the sheet; tap outside closes it.
+        // Labelled numeric input inside a sheet (activation c2 · PIN change c3).
+        function sheetField(sh, id, label, type, max, ph) {
+            sh.appendChild(el("label", { cls: "lf-label", "for": id, txt: label }));
+            var i = el("input", { cls: "lf-input", id: id, type: type, inputmode: "numeric", maxlength: max, placeholder: ph, autocomplete: type === "password" ? "new-password" : "off", css: "margin-bottom:8px" });
+            sh.appendChild(i);
+            return i;
+        }
         function openSheetModal(id, title) {
             closeModalById(id);
             var ov = el("div", { cls: "modal-overlay open", id: id });
@@ -5201,12 +5208,7 @@
             var sh = openSheetModal("actModal", "🔓 เปิดใช้งานสาขาครั้งแรก");
             sh.appendChild(el("div", { css: "font-size:13px;font-weight:700;margin:2px 0 4px", txt: "สาขา " + b + (branchLabel(b) !== b ? " · " + branchLabel(b) : "") }));
             sh.appendChild(el("div", { css: "font-size:12px;color:var(--muted);margin:0 0 10px", txt: "ใช้รหัส 8 หลักที่ HQ ส่งให้ แล้วตั้งรหัสใหม่ 2 ชุด — รหัสเปิดใช้งานใช้ได้ครั้งเดียว" }));
-            function field(id, label, type, max, ph) {
-                sh.appendChild(el("label", { cls: "lf-label", "for": id, txt: label }));
-                var i = el("input", { cls: "lf-input", id: id, type: type, inputmode: "numeric", maxlength: max, placeholder: ph, autocomplete: type === "password" ? "new-password" : "off", css: "margin-bottom:8px" });
-                sh.appendChild(i);
-                return i;
-            }
+            function field(id, label, type, max, ph) { return sheetField(sh, id, label, type, max, ph); }
             var codeI = field("actCode", "รหัสเปิดใช้งาน (8 หลัก จาก HQ)", "text", "9", "1234 5678");
             var o1 = field("actOwner1", "ตั้งรหัสเจ้าของ (4–6 หลัก)", "password", "6", "รหัสเจ้าของ");
             var o2 = field("actOwner2", "ยืนยันรหัสเจ้าของ", "password", "6", "พิมพ์ซ้ำ");
@@ -5483,14 +5485,19 @@
             document.body.appendChild(ov);
             inp.focus();
         }
-        // Owner PIN → the branch's own script (branch_auth, same call as login). onDone(null) = owner now, else Thai error text.
-        function elevateOwner(pin, onDone) {
-            var b = currentBranch, info = getBranchInfo(b);
-            fetchJSON(routeURL(b), {
+        // branch_auth for a branch this device is already in (its own script, kind = stored type) → Promise of the answer.
+        function branchAuthFor(b, pin) {
+            var info = getBranchInfo(b);
+            return fetchJSON(routeURL(b), {
                 method: "POST", mode: "cors",
                 headers: { "Content-Type": "text/plain;charset=utf-8" },
                 body: JSON.stringify({ type: "branch_auth", branch: b, pin: pin, kind: info ? info.type : undefined })
-            }, 12000).then(function (d) {
+            }, 12000);
+        }
+        // Owner PIN → the branch's own script (branch_auth, same call as login). onDone(null) = owner now, else Thai error text.
+        function elevateOwner(pin, onDone) {
+            var b = currentBranch;
+            branchAuthFor(b, pin).then(function (d) {
                 if (b !== currentBranch || isHQMode()) { onDone("เปลี่ยนสาขาแล้ว — ลองใหม่"); return; }
                 if (!d || !d.ok) { onDone(authErrorText(d && d.error, true)); return; }
                 if (d.role !== "owner" || !d.token) { onDone("รหัสนี้เป็นรหัสพนักงาน — ใช้รหัสเจ้าของ"); return; }
@@ -7586,68 +7593,139 @@
             loadXLSX(send, function (msg) { showToast(msg, true); });
         }
 
-        // ── Franchise owner settings: report email + staff PIN (owner role only) ──
+        // ── Owner settings (SPEC §4.5, 0018-c3): company + franchise, owner role only. Events have one PIN → no card.
+        //    Server = Access.gs branchConfig_ on the branch's OWN script. Report email = franchise only (company → REPORT_EMAIL). ──
         function branchConfigCall(payload, cb) {
-            payload.branch = currentBranch;
-            payload.token = getTokenFor(currentBranch);
-            fetchJSON(FRANCHISE_URL, {
+            var b = currentBranch;
+            payload.branch = b;
+            payload.token = getTokenFor(b);
+            fetchJSON(routeURL(b), {
                 method: "POST", mode: "cors",
                 headers: { "Content-Type": "text/plain;charset=utf-8" },
                 body: JSON.stringify(payload)
             }, 15000).then(function (d) {
-                if (d && d.auth) { handleAuthFail(currentBranch); return; }
+                if (d && d.auth) { handleAuthFail(b); cb({ ok: false, error: "auth" }); return; }
                 cb(d || { ok: false });
             }).catch(function () { cb({ ok: false, error: "network" }); });
         }
         function configErrText(d) {
+            var e = d && d.error;
+            if (e === "weak_pin" || e === "same_pin") return activateErrorText(d);
+            if (e === "locked_out") return authErrorText(e);
             var m = {
+                bad_pin: "รหัสเจ้าของปัจจุบันไม่ถูกต้อง",
                 bad_email: "รูปแบบอีเมลไม่ถูกต้อง",
-                bad_pin: "รหัสต้องเป็นตัวเลข 4–6 หลัก",
-                same_as_owner: "รหัสพนักงานต้องไม่ซ้ำกับรหัสเจ้าของ",
                 owner_only: "เฉพาะเจ้าของร้าน",
-                not_provisioned: "สาขานี้ยังไม่ได้รับรหัสเจ้าของจาก HQ",
+                not_provisioned: "สาขานี้ยังไม่เปิดใช้งาน — ติดต่อ HQ",
+                not_supported: "สาขานี้ตั้งค่าเองไม่ได้",
+                old_server: "ระบบสาขายังไม่รองรับการตั้งค่านี้ (รออัปเดต) — ติดต่อ HQ",
+                auth: "สิทธิ์เจ้าของหมดอายุ — ใส่รหัสเจ้าของใหม่",
                 network: "เชื่อมต่อไม่ได้ ลองใหม่"
             };
-            return m[d && d.error] || "บันทึกไม่สำเร็จ ลองใหม่";
+            return m[e] || "บันทึกไม่สำเร็จ ลองใหม่";
+        }
+        // set_owner_pin kills every owner token of b → put the fresh one wherever this device holds one (switch + owner login).
+        function replaceOwnerToken(b, tok) {
+            if (_elev && _elev.branch === b) _elev.token = tok;
+            var t = getTokens()[b];
+            if (t && t.role === "owner") setToken(b, tok, "owner");
+        }
+        // set_staff_pin kills this device's stored staff token too (Tony 1a) → log it in again with the new PIN (acceptLogin =
+        // the one login path), so the shop device stays in when the owner switch ends. onDone(true) = nothing to do / worked.
+        function reloginStaff(b, pin, onDone) {
+            var t = getTokens()[b], info = getBranchInfo(b);
+            if (!t || t.role !== "staff" || !info) { onDone(true); return; }
+            branchAuthFor(b, pin).then(function (d) {
+                var ok = !!(d && d.ok && d.role === "staff" && d.token);
+                if (ok) acceptLogin(b, info.type, d);
+                onDone(ok);
+            }).catch(function () { onDone(false); });
+        }
+        var PIN_CHANGE = {
+            staff: { title: "🔑 เปลี่ยนรหัสพนักงาน", type: "set_staff_pin", note: "พนักงานทุกเครื่องต้องเข้าสู่ระบบใหม่ด้วยรหัสใหม่" },
+            owner: { title: "👑 เปลี่ยนรหัสเจ้าของ", type: "set_owner_pin", note: "เครื่องอื่นที่เข้าด้วยรหัสเจ้าของต้องเข้าใหม่ — เครื่องนี้ใช้ต่อได้" }
+        };
+        // ONE sheet for both PIN changes (Tony 2a: new PIN ×2). Owner also needs the current owner PIN (server checks it).
+        function openPinChange(kind) {
+            var cfg = PIN_CHANGE[kind], b = currentBranch, label = PIN_FIELD_TEXT[kind];
+            if (!cfg || !b || !canDo("settings")) return;
+            var sh = openSheetModal("pinChgModal", cfg.title);
+            sh.appendChild(el("div", { css: "font-size:12px;color:var(--muted);margin:0 0 10px", txt: "สาขา " + b + " · " + cfg.note }));
+            var cur = kind === "owner" ? sheetField(sh, "pcCur", "รหัสเจ้าของปัจจุบัน", "password", "6", "รหัสเดิม") : null;
+            var n1 = sheetField(sh, "pcNew1", label + "ใหม่ (4–6 หลัก)", "password", "6", label + "ใหม่");
+            var n2 = sheetField(sh, "pcNew2", "ยืนยัน" + label + "ใหม่", "password", "6", "พิมพ์ซ้ำ");
+            var msg = el("div", { id: "pcMsg", css: "font-size:12px;color:#D26A5C;min-height:16px;margin:4px 0 6px" });
+            var okTxt = "บันทึก" + label + "ใหม่";
+            var ok = el("button", { cls: "abtn", id: "pcOk", type: "button", txt: okTxt });
+            var no = el("button", { cls: "abtn-outline", type: "button", css: "margin-top:8px", txt: "ยกเลิก" });
+            ok.onclick = function () {
+                var cp = cur ? cur.value.trim() : "", np = n1.value.trim(), rc = pinRuleCode(np);
+                var err = cur && !/^\d{4,6}$/.test(cp) ? "ใส่รหัสเจ้าของปัจจุบัน (4–6 หลัก)"
+                    : rc ? label + ": " + PIN_RULE_TEXT[rc]
+                    : cur && np === cp ? "รหัสใหม่ต้องไม่ซ้ำรหัสเดิม"
+                    : np !== n2.value.trim() ? "ยืนยัน" + label + "ไม่ตรงกัน" : "";
+                if (err) { msg.textContent = err; return; }
+                if (navigator.onLine === false) { msg.textContent = "ต้องต่อเน็ตเพื่อเปลี่ยนรหัส"; return; }
+                ok.disabled = true; ok.textContent = "กำลังบันทึก...";
+                var payload = { type: cfg.type, new_pin: np };
+                if (cur) payload.current_pin = cp;
+                branchConfigCall(payload, function (d) {
+                    if (d.ok && kind === "owner" && !d.token) d = { ok: false, error: "old_server" };   // v8 answers ok to unknown types
+                    if (!d.ok) {
+                        if (d.error === "auth") { closeModalById("pinChgModal"); showToast(configErrText(d), true); return; }
+                        ok.disabled = false; ok.textContent = okTxt; msg.textContent = configErrText(d);
+                        return;
+                    }
+                    closeModalById("pinChgModal");
+                    if (kind === "owner") { replaceOwnerToken(b, d.token); showToast("✅ เปลี่ยนรหัสเจ้าของแล้ว"); return; }
+                    reloginStaff(b, np, function (fine) {
+                        showToast(fine ? "✅ เปลี่ยนรหัสพนักงานแล้ว — พนักงานเครื่องอื่นต้องเข้าใหม่ด้วยรหัสใหม่"
+                            : "✅ เปลี่ยนรหัสพนักงานแล้ว — เครื่องนี้ต้องเข้าใหม่ด้วยรหัสพนักงานใหม่", !fine);
+                    });
+                });
+            };
+            no.onclick = function () { closeModalById("pinChgModal"); };
+            sh.appendChild(msg); sh.appendChild(ok); sh.appendChild(no);
+            (cur || n1).focus();
         }
         function renderOwnerSettings() {
             var box = $("ownerSettings"); if (!box) return; clr(box);
-            if (!currentBranch || getSyncURL(currentBranch) !== FRANCHISE_URL) return;
-            if (!canDo("settings") || !getTokenFor(currentBranch)) return;
+            var b = currentBranch, info = b ? getBranchInfo(b) : null, type = info ? info.type : "";
+            if (type !== "company" && type !== "franchise") return;
+            if (!canDo("settings") || !getTokenFor(b)) return;
             var card = el("div", { cls: "card", css: "margin-top:12px" });
             card.appendChild(el("span", { cls: "sec-lbl", txt: "⚙️ ตั้งค่าเจ้าของร้าน" }));
-            card.appendChild(el("div", { txt: "อีเมลรับรายงานปิดวัน", css: "font-size:12px;color:var(--muted);margin:6px 0 4px" }));
-            var em = el("input", { cls: "lf-input", type: "email", placeholder: "owner@email.com", autocomplete: "off" });
-            var emBtn = el("button", { cls: "abtn-outline", txt: "บันทึกอีเมล" });
-            card.appendChild(em); card.appendChild(emBtn);
-            card.appendChild(el("div", { txt: "เปลี่ยนรหัสพนักงาน (ตัวเลข 4–6 หลัก) — พนักงานทุกเครื่องต้องเข้าสู่ระบบใหม่", css: "font-size:12px;color:var(--muted);margin:12px 0 4px" }));
-            var pinIn = el("input", { cls: "lf-input", type: "password", inputmode: "numeric", maxlength: "6", placeholder: "รหัสพนักงานใหม่", autocomplete: "off" });
-            var pinBtn = el("button", { cls: "abtn-outline", txt: "เปลี่ยนรหัสพนักงาน" });
-            card.appendChild(pinIn); card.appendChild(pinBtn);
-            var note = el("div", { css: "font-size:11px;color:var(--muted);margin-top:8px", txt: "กำลังโหลด..." });
+            var btns = [], em = null;
+            function lbl(t) { card.appendChild(el("div", { txt: t, css: "font-size:12px;color:var(--muted);margin:10px 0 4px" })); }
+            if (type === "franchise") {
+                lbl("อีเมลรับรายงานปิดวัน");
+                em = el("input", { cls: "lf-input", id: "ownEmail", type: "email", placeholder: "owner@email.com", autocomplete: "off" });
+                var emBtn = el("button", { cls: "abtn-outline", id: "ownEmailBtn", type: "button", txt: "บันทึกอีเมล" });
+                card.appendChild(em); card.appendChild(emBtn); btns.push(emBtn);
+                emBtn.onclick = function () {
+                    branchConfigCall({ type: "set_report_email", email: em.value.trim() }, function (d) {
+                        if (d.ok) { note.textContent = ""; showToast("✅ บันทึกอีเมลแล้ว"); }
+                        else { showToast(configErrText(d), true); }
+                    });
+                };
+            }
+            lbl("รหัสเข้าใช้งาน");
+            [["staff", "ownStaffPinBtn"], ["owner", "ownOwnerPinBtn"]].forEach(function (x) {
+                var bt = el("button", { cls: "abtn-outline", id: x[1], type: "button", css: "margin-top:6px", txt: PIN_CHANGE[x[0]].title });
+                bt.onclick = function () { openPinChange(x[0]); };
+                card.appendChild(bt); btns.push(bt);
+            });
+            var note = el("div", { id: "ownNote", css: "font-size:11px;color:var(--muted);margin-top:8px", txt: "กำลังโหลด..." });
             card.appendChild(note);
             box.appendChild(card);
+            btns.forEach(function (x) { x.disabled = true; });   // until the server proves it is v9 (below)
             branchConfigCall({ type: "get_branch_config" }, function (d) {
-                if (d.ok) {
-                    em.value = d.report_email || "";
-                    note.textContent = d.report_email ? "" : "⚠️ ยังไม่ได้ตั้งอีเมล — รายงานปิดวันจะยังไม่ถูกส่ง";
-                } else { note.textContent = configErrText(d); }
+                if (d.ok && !d.type) d = { ok: false, error: "old_server" };   // v8: Franchise sends no type, Owner a blind ok
+                if (!d.ok) { note.textContent = configErrText(d); return; }
+                btns.forEach(function (x) { x.disabled = false; });
+                note.textContent = em && !d.report_email ? "⚠️ ยังไม่ได้ตั้งอีเมล — รายงานปิดวันจะยังไม่ถูกส่ง" : "";
+                if (em) em.value = d.report_email || "";
             });
-            emBtn.onclick = function () {
-                branchConfigCall({ type: "set_report_email", email: em.value.trim() }, function (d) {
-                    if (d.ok) { note.textContent = ""; showToast("✅ บันทึกอีเมลแล้ว"); }
-                    else { showToast(configErrText(d), true); }
-                });
-            };
-            pinBtn.onclick = function () {
-                var v = pinIn.value.trim();
-                if (!/^\d{4,6}$/.test(v)) { showToast("รหัสพนักงานต้องเป็นตัวเลข 4–6 หลัก", true); return; }
-                if (!confirm("เปลี่ยนรหัสพนักงาน?\nพนักงานทุกเครื่องจะต้องเข้าสู่ระบบด้วยรหัสใหม่")) return;
-                branchConfigCall({ type: "set_staff_pin", new_pin: v }, function (d) {
-                    if (d.ok) { pinIn.value = ""; showToast("✅ เปลี่ยนรหัสพนักงานแล้ว"); }
-                    else { showToast(configErrText(d), true); }
-                });
-            };
         }
 
         // ═══════════════════════════════════
