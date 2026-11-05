@@ -298,7 +298,7 @@
         /* 0018-c2: activation + PIN help links on the login screen · PIN help table */
         .login-link { display: block; margin: 8px 0 0; border: none; background: transparent; font-family: var(--ft); font-size: 12px; font-weight: 700; color: var(--blue); text-decoration: underline; cursor: pointer; padding: 6px 0 }
         .login-help { margin: 10px auto 0; color: var(--muted); font-weight: 400 }
-        #actModal, #pinHelpModal, #evConfirmModal { z-index: 1000 }   /* over the login screen (1000, earlier in the DOM), under the toast (1001) */
+        #actModal, #pinHelpModal, #evConfirmModal, #evCreateModal { z-index: 1000 }   /* over the login screen (1000, earlier in the DOM), under the toast (1001) */
         /* 0018-d1: event list on the login screen (tap = pick, PIN in the shared field) */
         .ev-list { display: flex; flex-direction: column; gap: 6px }
         .ev-item { display: block; width: 100%; text-align: left; background: var(--card); border: 1.5px solid var(--border); border-radius: 14px; padding: 10px 14px; font-family: var(--ft); cursor: pointer }
@@ -4087,6 +4087,7 @@
             <div class="lf-group lt-pane" data-ltpane="event">
                 <span class="lf-label">งาน Event * <span style="opacity:.5">(แตะชื่องาน แล้วใส่รหัสงาน)</span></span>
                 <div class="ev-list" id="loginEventList"></div>
+                <button type="button" class="login-link" id="evCreateLink" data-evcreate="1">+ เปิดงานใหม่</button>
             </div>
             <div class="lf-group">
                 <label class="lf-label" for="loginPinInput">รหัสสาขา <span style="opacity:.5">(รหัสเจ้าของ หรือ รหัสพนักงาน)</span></label>
@@ -5187,6 +5188,100 @@
             no.onclick = function () { closeModalById("evConfirmModal"); var pI = $("loginPinInput"); if (pI) pI.value = ""; };
             sh.appendChild(yes); sh.appendChild(no);
         }
+        // ── New event (0018-d2, SPEC §6.2 / §6.3 · D-d-4): name · start · end · event PIN ×2 · รหัสเปิดงาน → event_create (Owner).
+        //    Client rules mirror the server for instant feedback; the server stays the judge. Start today or earlier → straight in
+        //    as owner (no D-ev-3 sheet: they just made it). Future start → created only, entered from the list on its start day. ──
+        var EVENT_START_BACK = 7, EVENT_START_AHEAD = 30, EVENT_MAX_DAYS = 30;   // = gs/Access.gs
+        var EVENT_END_BACK = EVENT_GRACE_DAYS;   // Tony 05/11: the last day may be up to 3 days ago (still writable in the grace)
+        function eventCreateErrorText(d) {
+            if (d && d.error === "weak_pin") return d.rule === "open_pin" ? PIN_RULE_TEXT.open_pin : PIN_FIELD_TEXT.event + ": " + (PIN_RULE_TEXT[d.rule] || PIN_RULE_TEXT.format);
+            if (d && d.error === "locked_out") return "ใส่รหัสผิดหลายครั้ง — รอ 30 นาที";
+            return authErrorText(d && d.error, true);
+        }
+        // "" = OK, else the Thai text of the ONE broken rule (server order: name · start · end · PIN · open PIN).
+        function eventCreateCheck(f) {
+            var t = todayISO(), sk = dateSortKey(f.start), ek = dateSortKey(f.end);
+            if (f.label.length < 3 || f.label.length > 40 || /^[=+\-@]/.test(f.label)) return authErrorText("bad_label");
+            if (!sk || sk < dateSortKey(shiftDateStr(t, -EVENT_START_BACK)) || sk > dateSortKey(shiftDateStr(t, EVENT_START_AHEAD))) return "วันเริ่มงาน: ย้อนได้ 7 วัน ถึงล่วงหน้า 30 วัน";
+            if (!ek || ek < sk || ek > dateSortKey(shiftDateStr(f.start, EVENT_MAX_DAYS))) return "วันสุดท้าย: ต้องไม่ก่อนวันเริ่ม และงานยาวไม่เกิน 30 วัน";
+            if (ek < dateSortKey(shiftDateStr(t, -EVENT_END_BACK))) return "วันสุดท้าย: ย้อนได้ไม่เกิน 3 วัน (งานที่จบนานกว่านั้นบันทึกไม่ได้แล้ว)";
+            var pc = pinRuleCode(f.pin);
+            if (pc) return PIN_FIELD_TEXT.event + ": " + PIN_RULE_TEXT[pc];
+            if (f.pin !== f.pin2) return "ยืนยันรหัสงานไม่ตรงกัน";
+            if (!f.open_pin) return "ใส่รหัสเปิดงาน (ถาม HQ)";
+            if (f.pin === f.open_pin) return PIN_RULE_TEXT.open_pin;
+            return "";
+        }
+        function openEventCreate() {
+            if (_loginTab !== "event" || !loginNamesOk()) return;
+            var t = todayISO();
+            var sh = openSheetModal("evCreateModal", "📅 เปิดงานใหม่");
+            sh.appendChild(el("div", { css: "font-size:12px;color:var(--muted);margin:0 0 10px", txt: "ตั้งชื่องาน วันงาน และรหัสงานให้คนในบูธใช้เข้า — ต้องใช้รหัสเปิดงานจาก HQ" }));
+            var nameI = sheetField(sh, "evcName", "ชื่องาน / สถานที่ (3–40 ตัว)", "text", "40", "เช่น งานวัดหลวง สระบุรี", "text");
+            var startI = sheetField(sh, "evcStart", "วันเริ่มงาน", "date", "10", "");
+            var endI = sheetField(sh, "evcEnd", "วันสุดท้ายของงาน", "date", "10", "");
+            startI.value = beDateInput(t);
+            startI.min = beDateInput(shiftDateStr(t, -EVENT_START_BACK));
+            startI.max = beDateInput(shiftDateStr(t, EVENT_START_AHEAD));
+            function syncEndRange() {   // date-picker hint only — eventCreateCheck is the rule
+                var s = inputDateBE(startI.value); if (!s) return;
+                var lo = shiftDateStr(t, -EVENT_END_BACK);
+                endI.min = beDateInput(dateSortKey(s) > dateSortKey(lo) ? s : lo);
+                endI.max = beDateInput(shiftDateStr(s, EVENT_MAX_DAYS));
+                if (!endI.value || endI.value < endI.min) endI.value = endI.min;   // yyyy-mm-dd strings sort as dates
+                if (endI.value > endI.max) endI.value = endI.max;
+            }
+            startI.onchange = syncEndRange; syncEndRange();
+            var p1 = sheetField(sh, "evcPin1", "ตั้งรหัสงาน (4–6 หลัก) — คนในบูธใช้เข้า", "password", "6", "รหัสงาน");
+            var p2 = sheetField(sh, "evcPin2", "ยืนยันรหัสงาน", "password", "6", "พิมพ์ซ้ำ");
+            var op = sheetField(sh, "evcOpenPin", "รหัสเปิดงาน (จาก HQ)", "password", "12", "รหัสเปิดงาน");
+            var msg = el("div", { id: "evcMsg", css: "font-size:12px;color:#D26A5C;min-height:16px;margin:4px 0 6px" });
+            var ok = el("button", { cls: "abtn", id: "evcOk", type: "button", txt: "เปิดงาน" });
+            var no = el("button", { cls: "abtn-outline", type: "button", css: "margin-top:8px", txt: "ยกเลิก" });
+            var help = el("button", { cls: "login-link login-help", type: "button", txt: "❔ รหัสมาจากไหน?" });
+            ok.onclick = function () {
+                var f = { label: nameI.value.replace(/\s+/g, " ").trim(), start: inputDateBE(startI.value), end: inputDateBE(endI.value),
+                    pin: p1.value.trim(), pin2: p2.value.trim(), open_pin: op.value.trim() };
+                var err = eventCreateCheck(f);
+                if (!err && navigator.onLine === false) err = "ต้องต่อเน็ตเพื่อเปิดงาน";
+                if (err) { msg.textContent = err; return; }
+                ok.disabled = true; ok.textContent = "กำลังเปิดงาน...";
+                createEvent(f, function (e2, d) {
+                    if (e2) { ok.disabled = false; ok.textContent = "เปิดงาน"; msg.textContent = e2; return; }
+                    closeModalById("evCreateModal");
+                    if (eventPhase(d) === "future") {   // writes before the start are refused → not entered; listed grey until then
+                        showToast("📅 สร้างงานแล้ว — เข้าได้ตั้งแต่ " + evDayText(d.start));
+                        loadEventList();
+                        return;
+                    }
+                    acceptLogin(d.key, "event", d);
+                    _loginBranch = d.key;
+                    loadEventList();   // the new event stays picked while the list reloads (resumableEvent)
+                    showToast("📅 เปิดงาน " + d.label + " แล้ว" + (eventPhase(d) === "late" ? " — เลยวันสุดท้ายแล้ว ลงยอดย้อนหลัง แล้วปิดวันเพื่อปิดงาน" : ""));
+                    doLogin();   // session + owner token are stored → straight to finishLogin
+                });
+            };
+            no.onclick = function () { closeModalById("evCreateModal"); };
+            help.onclick = openPinHelp;
+            sh.appendChild(msg); sh.appendChild(ok); sh.appendChild(no); sh.appendChild(help);
+            nameI.focus();
+        }
+        // event_create on the Owner script. onDone(null, d) = created, else onDone(Thai text).
+        // No automatic retry: if the answer got lost after the server created it, a 2nd try says label_in_use.
+        function createEvent(f, onDone) {
+            var nick = ($("loginNick") || { value: "" }).value.trim(), phone = ($("loginPhone") || { value: "" }).value.trim();
+            fetchJSON(urlForType("event"), {
+                method: "POST", mode: "cors",
+                headers: { "Content-Type": "text/plain;charset=utf-8" },
+                body: JSON.stringify({ type: "event_create", label: f.label, start: f.start, end: f.end, pin: f.pin, open_pin: f.open_pin, staff: { nick: nick, phone: phone } })
+            }, 15000).then(function (d) {
+                if (!d || !d.ok) { onDone(eventCreateErrorText(d)); return; }
+                if (d.role !== "owner" || !d.token || !d.key) { onDone("ระบบยังไม่รองรับการเปิดงาน (รออัปเดต) — ติดต่อ HQ"); return; }   // v8 answers ok to unknown types
+                onDone(null, d);
+            }).catch(function () {
+                onDone("เชื่อมต่อไม่ได้ — ลองใหม่อีกครั้ง (ถ้าขึ้นว่าชื่องานนี้ใช้แล้ว แปลว่าเปิดสำเร็จแล้ว ให้แตะงานในรายการแล้วใส่รหัสงาน)");
+            });
+        }
         function onLoginTabClick(ev) {
             var b = ev.target && ev.target.closest ? ev.target.closest(".lt-tab") : null;
             if (b) setLoginTab(b.getAttribute("data-tab"));
@@ -5222,7 +5317,15 @@
                 locked_out: "ใส่รหัสผิดหลายครั้ง — รอ 10 นาที",
                 ended: "งานนี้ปิดแล้ว บันทึกเพิ่มไม่ได้",
                 code_bad: "รหัสเปิดใช้งานไม่ถูกต้อง",
-                code_expired: "รหัสเปิดใช้งานหมดอายุ — ขอรหัสใหม่จาก HQ"
+                code_expired: "รหัสเปิดใช้งานหมดอายุ — ขอรหัสใหม่จาก HQ",
+                label_in_use: "ชื่องานนี้มีงานที่เปิดอยู่ใช้แล้ว — ตั้งชื่ออื่น",   // event_create (0018-d2, D-d-4)
+                pin_in_use: "รหัสนี้มีงานอื่นใช้อยู่ — ตั้งรหัสใหม่",
+                open_pin_bad: "รหัสเปิดงานไม่ถูกต้อง",
+                too_many_open: "มีงานเปิดอยู่พร้อมกันครบ 10 งานแล้ว — ปิดงานที่จบแล้วก่อน",
+                rate_limited: "วันนี้เปิดงานครบ 5 งานแล้ว — ติดต่อ HQ",
+                bad_label: "ชื่องานต้องยาว 3–40 ตัว และไม่ขึ้นต้นด้วย = + - @",
+                bad_date: "วันที่ไม่ถูกต้อง (เริ่มได้ย้อน 7 วัน ถึงล่วงหน้า 30 วัน · งานยาวไม่เกิน 30 วัน)",
+                disabled: "ระบบยังไม่เปิดให้สร้างงาน — ติดต่อ HQ"
             };
             return m[code] || (hadPin ? "รหัสไม่ถูกต้อง" : "สาขานี้ต้องใส่รหัส");
         }
@@ -5239,9 +5342,10 @@
             format: "ต้องเป็นตัวเลข 4–6 หลัก",
             repeat: "ห้ามใช้เลขเดียวกันทั้งหมด เช่น 1111",
             sequence: "ห้ามใช้เลขเรียงกัน เช่น 1234 หรือ 4321",
-            same: "รหัสเจ้าของกับรหัสพนักงานต้องไม่ซ้ำกัน"
+            same: "รหัสเจ้าของกับรหัสพนักงานต้องไม่ซ้ำกัน",
+            open_pin: "รหัสงานต้องไม่ซ้ำกับรหัสเปิดงาน"   // event_create weak_pin rule (server) = client check
         };
-        var PIN_FIELD_TEXT = { owner: "รหัสเจ้าของ", staff: "รหัสพนักงาน" };
+        var PIN_FIELD_TEXT = { owner: "รหัสเจ้าของ", staff: "รหัสพนักงาน", event: "รหัสงาน" };
         // "" = OK, else the ONE broken rule: format · repeat · sequence · same (= other). Server order.
         function pinRuleCode(pin, other) {
             pin = String(pin === undefined || pin === null ? "" : pin);
@@ -5264,19 +5368,20 @@
             if (d && d.error === "same_pin") return PIN_RULE_TEXT.same;
             return authErrorText(d && d.error, true);
         }
-        // Login-screen links (data-login): activation sheet · PIN help sheet.
+        // Login-screen links (data-login): activation sheet · PIN help sheet · (data-evcreate) new event sheet.
         function onLoginLinkClick(ev) {
-            var t = ev.target && ev.target.closest ? ev.target.closest("[data-login]") : null;
+            var t = ev.target && ev.target.closest ? ev.target.closest("[data-login],[data-evcreate]") : null;
             if (!t) return;
-            if (t.getAttribute("data-login") === "activate") openActivation();
+            if (t.getAttribute("data-evcreate")) openEventCreate();
+            else if (t.getAttribute("data-login") === "activate") openActivation();
             else if (t.getAttribute("data-login") === "help") openPinHelp();
         }
         function closeModalById(id) { var m = $(id); if (m && m.parentNode) m.parentNode.removeChild(m); }
         // Bottom sheet shell shared by the c2 sheets: returns the sheet; tap outside closes it.
-        // Labelled numeric input inside a sheet (activation c2 · PIN change c3).
-        function sheetField(sh, id, label, type, max, ph) {
+        // Labelled input inside a sheet (activation c2 · PIN change c3 · new event d2). im = inputmode, default numeric.
+        function sheetField(sh, id, label, type, max, ph, im) {
             sh.appendChild(el("label", { cls: "lf-label", "for": id, txt: label }));
-            var i = el("input", { cls: "lf-input", id: id, type: type, inputmode: "numeric", maxlength: max, placeholder: ph, autocomplete: type === "password" ? "new-password" : "off", css: "margin-bottom:8px" });
+            var i = el("input", { cls: "lf-input", id: id, type: type, inputmode: im || "numeric", maxlength: max, placeholder: ph, autocomplete: type === "password" ? "new-password" : "off", css: "margin-bottom:8px" });
             sh.appendChild(i);
             return i;
         }
@@ -5291,14 +5396,19 @@
             document.body.appendChild(ov);
             return sh;
         }
+        // Name + nick + phone on the login screen are filled (activation · new event) — false = toast shown.
+        function loginNamesOk() {
+            var ok = ["loginName", "loginNick", "loginPhone"].every(function (id) { return (($(id) || { value: "" }).value || "").trim(); });
+            if (!ok) showToast("กรอกชื่อ ชื่อเล่น และเบอร์ด้านบนก่อน", true);
+            return ok;
+        }
         // ── First-time activation (SPEC §4.4): 8-digit code from HQ + new owner PIN + new staff PIN → owner on this device.
         //    Same for company and franchise (the open tab = kind). Events never activate. ──
         function openActivation() {
             var b = _loginBranch, tab = _loginTab;
             if (tab !== "company" && tab !== "franchise") return;
             if (!b) { showToast(tab === "company" ? "เลือกสาขาก่อน" : "พิมพ์รหัสสาขาก่อน", true); return; }
-            var nameOk = ["loginName", "loginNick", "loginPhone"].every(function (id) { return (($(id) || { value: "" }).value || "").trim(); });
-            if (!nameOk) { showToast("กรอกชื่อ ชื่อเล่น และเบอร์ด้านบนก่อน", true); return; }
+            if (!loginNamesOk()) return;
             var sh = openSheetModal("actModal", "🔓 เปิดใช้งานสาขาครั้งแรก");
             sh.appendChild(el("div", { css: "font-size:13px;font-weight:700;margin:2px 0 4px", txt: "สาขา " + b + (branchLabel(b) !== b ? " · " + branchLabel(b) : "") }));
             sh.appendChild(el("div", { css: "font-size:12px;color:var(--muted);margin:0 0 10px", txt: "ใช้รหัส 8 หลักที่ HQ ส่งให้ แล้วตั้งรหัสใหม่ 2 ชุด — รหัสเปิดใช้งานใช้ได้ครั้งเดียว" }));
@@ -7249,6 +7359,10 @@
         function inputDateBE(v) {
             var m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(v || ""));
             return m ? m[3] + "/" + m[2] + "/" + (+m[1] + 543) : "";
+        }
+        function beDateInput(ds) {   // dd/mm/yyyy (Buddhist year) → yyyy-mm-dd for <input type=date> — inverse of inputDateBE
+            var p = normDateStr(ds).split("/");
+            return p.length === 3 && +p[2] ? (+p[2] - 543) + "-" + p[1] + "-" + p[0] : "";
         }
         function cloudHistErrText(d) {
             if (d && d.auth) return "🔒 สิทธิ์หมดอายุ — ออกจากระบบแล้วเข้าใหม่";

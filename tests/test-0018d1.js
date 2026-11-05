@@ -295,7 +295,7 @@ const srv = http.createServer((req, res) => {
       accept: [n(SRC, /acceptLogin\(/g) - n(baseSrc, /acceptLogin\(/g)], placeholder: SRC.indexOf('เปิดใช้ในเวอร์ชันถัดไป') };
     ok('V16 static: ' + added.length + ' added lines without let/const/=>/`/innerHTML · el() byte-identical · no new setToken( / branch_auth body · +1 acceptLogin( (confirm) · placeholder gone',
       added.length > 40 && bad.length === 0 && elOf(SRC) && elOf(SRC) === elOf(baseSrc) && facts.setTok[0] === facts.setTok[1] && facts.authBody[0] === facts.authBody[1] &&
-      facts.accept[0] === 1 && facts.placeholder < 0, JSON.stringify([bad.slice(0, 3), facts]));
+      facts.accept[0] >= 1 && facts.placeholder < 0, JSON.stringify([bad.slice(0, 3), facts]));   // ≥: d2 adds the create entry (exact count: test-0018d2 W15)
 
     ok('V17 no page errors', errs.length === 0, errs.slice(0, 3).join(' | '));
   } catch (e) {
